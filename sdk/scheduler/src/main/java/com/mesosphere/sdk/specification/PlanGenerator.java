@@ -1,5 +1,6 @@
 package com.mesosphere.sdk.specification;
 
+import com.mesosphere.sdk.offer.Constants;
 import com.mesosphere.sdk.offer.LoggingUtils;
 import com.mesosphere.sdk.scheduler.plan.*;
 import com.mesosphere.sdk.scheduler.plan.strategy.CanaryStrategy;
@@ -12,8 +13,6 @@ import com.mesosphere.sdk.scheduler.plan.strategy.StrategyGenerator;
 import com.mesosphere.sdk.specification.yaml.RawPhase;
 import com.mesosphere.sdk.specification.yaml.RawPlan;
 import com.mesosphere.sdk.specification.yaml.WriteOnceLinkedHashMap;
-import com.mesosphere.sdk.state.ConfigTargetStore;
-import com.mesosphere.sdk.state.StateStore;
 
 import org.slf4j.Logger;
 
@@ -24,6 +23,7 @@ import java.util.stream.Collectors;
  * Generates {@link Plan}s as defined in a YAML plan specification.
  */
 public class PlanGenerator {
+
     private static final Logger LOGGER = LoggingUtils.getLogger(PlanGenerator.class);
 
     private static final String DEFAULT_POD_INDEX_LABEL = "default";
@@ -48,21 +48,60 @@ public class PlanGenerator {
 
     private final StepFactory stepFactory;
 
-
-    public PlanGenerator(ConfigTargetStore configTargetStore, StateStore stateStore, Optional<String> namespace) {
-        this(new DefaultStepFactory(configTargetStore, stateStore, namespace));
-    }
-
     public PlanGenerator(StepFactory stepFactory) {
         this.stepFactory = stepFactory;
     }
 
-    public Plan generate(RawPlan rawPlan, String planName, Collection<PodSpec> podsSpecs) {
-        final List<Phase> phases = rawPlan.getPhases().entrySet().stream()
-                .map(entry-> generatePhase(entry.getValue(), entry.getKey(), podsSpecs))
+    /**
+     * Generates a default {@code deploy} plan based on the content of the pods. This creates a serial plan where the
+     * pods are deployed in the order that they were declared.
+     *
+     * @param serviceSpec the service spec containing the pods to be deployed
+     * @return a new deploy plan describing a reasonable default deployment
+     */
+    public Plan generateDeployFromPods(ServiceSpec serviceSpec) {
+        List<Phase> phases = serviceSpec.getPods().stream()
+                .map(podSpec -> new DefaultPhase(
+                        podSpec.getType(),
+                        generatePodSteps(podSpec),
+                        new SerialStrategy<>(),
+                        Collections.emptyList()))
                 .collect(Collectors.toList());
-        return DeployPlanFactory.getPlan(
-                planName, phases, getPlanStrategyGenerator(rawPlan.getStrategy()).generate(phases));
+        return new DefaultPlan(Constants.DEPLOY_PLAN_NAME, phases, new SerialStrategy<>());
+    }
+
+    /**
+     * Generates a custom plan based on the provided YAML {@link RawPlan}. The resulting output is effectively a
+     * rendered version of the provided specification.
+     *
+     * @param rawPlan the YAML plan to be rendered
+     * @param planName the name to use for the returned plan
+     * @param podSpecs
+     * @return a new plan object representing the provided plan spec
+     */
+    public Plan generateFromYamlSpec(RawPlan rawPlan, String planName, Collection<PodSpec> podSpecs) {
+        final List<Phase> phases = rawPlan.getPhases().entrySet().stream()
+                .map(entry-> generatePhase(entry.getValue(), entry.getKey(), podSpecs))
+                .collect(Collectors.toList());
+        return new DefaultPlan(
+                planName,
+                phases,
+                getPlanStrategyGenerator(rawPlan.getStrategy()).generate(phases),
+                Collections.emptyList());
+    }
+
+    private List<Step> generatePodSteps(PodSpec podSpec) {
+        List<Step> steps = new ArrayList<>();
+        for (int i = 0; i < podSpec.getCount(); i++) {
+            PodInstance podInstance = new DefaultPodInstance(podSpec, i);
+
+            List<String> tasksToLaunch = podInstance.getPod().getTasks().stream()
+                    .map(taskSpec -> taskSpec.getName())
+                    .collect(Collectors.toList());
+
+            steps.add(stepFactory.getStep(podInstance, tasksToLaunch));
+        }
+        return steps;
     }
 
     private Phase generatePhase(RawPhase rawPhase, String phaseName, Collection<PodSpec> podSpecs) {

@@ -25,7 +25,7 @@ import static org.junit.Assert.assertThat;
 
 
 /**
- * This class tests the {@link DefaultStepFactory} class.
+ * This class tests the {@link DeployStepFactory} class.
  */
 public class DefaultStepFactoryTest {
 
@@ -91,7 +91,7 @@ public class DefaultStepFactoryTest {
                         .build());
 
 
-        assertThat(((DefaultStepFactory) stepFactory)
+        assertThat(((DeployStepFactory) stepFactory)
                 .hasReachedGoalState(stateStore.fetchTask(taskName).get(), GoalState.RUNNING), is(false));
 
         Step step = stepFactory.getStep(podInstance, tasksToLaunch);
@@ -108,7 +108,7 @@ public class DefaultStepFactoryTest {
                         .build());
 
 
-        assertThat(((DefaultStepFactory) stepFactory)
+        assertThat(((DeployStepFactory) stepFactory)
                 .hasReachedGoalState(stateStore.fetchTask(taskName).get(), GoalState.RUNNING), is(true));
 
         step = stepFactory.getStep(podInstance, tasksToLaunch);
@@ -148,7 +148,7 @@ public class DefaultStepFactoryTest {
                         .setTaskId(taskInfo.getTaskId())
                         .build());
 
-        assertThat(((DefaultStepFactory) stepFactory)
+        assertThat(((DeployStepFactory) stepFactory)
                 .hasReachedGoalState(stateStore.fetchTask(taskName).get(), GoalState.FINISHED), is(false));
 
         stateStore.storeStatus(taskName,
@@ -158,7 +158,7 @@ public class DefaultStepFactoryTest {
                         .build());
 
 
-        assertThat(((DefaultStepFactory) stepFactory)
+        assertThat(((DeployStepFactory) stepFactory)
                 .hasReachedGoalState(stateStore.fetchTask(taskName).get(), GoalState.FINISHED), is(true));
     }
 
@@ -193,7 +193,7 @@ public class DefaultStepFactoryTest {
                         .setTaskId(taskInfo.getTaskId())
                         .build());
 
-        assertThat(((DefaultStepFactory) stepFactory)
+        assertThat(((DeployStepFactory) stepFactory)
                 .hasReachedGoalState(stateStore.fetchTask(taskName).get(), GoalState.FINISH), is(false));
 
         stateStore.storeStatus(taskName,
@@ -203,7 +203,7 @@ public class DefaultStepFactoryTest {
                         .build());
 
 
-        assertThat(((DefaultStepFactory) stepFactory)
+        assertThat(((DeployStepFactory) stepFactory)
                 .hasReachedGoalState(stateStore.fetchTask(taskName).get(), GoalState.FINISH), is(true));
     }
 
@@ -238,7 +238,7 @@ public class DefaultStepFactoryTest {
                         .setTaskId(taskInfo.getTaskId())
                         .build());
 
-        assertThat(((DefaultStepFactory) stepFactory)
+        assertThat(((DeployStepFactory) stepFactory)
                 .hasReachedGoalState(stateStore.fetchTask(taskName).get(), GoalState.ONCE), is(false));
 
         stateStore.storeStatus(taskName,
@@ -248,7 +248,7 @@ public class DefaultStepFactoryTest {
                         .build());
 
 
-        assertThat(((DefaultStepFactory) stepFactory)
+        assertThat(((DeployStepFactory) stepFactory)
                 .hasReachedGoalState(stateStore.fetchTask(taskName).get(), GoalState.ONCE), is(true));
     }
 
@@ -278,7 +278,7 @@ public class DefaultStepFactoryTest {
         UUID configId = configStore.store(serviceSpec);
         configStore.setTargetConfig(configId);
 
-        stepFactory = new DefaultStepFactory(configStore, stateStore, Optional.empty());
+        stepFactory = new DeployStepFactory(configStore, stateStore, Optional.empty());
 
         return new DefaultPodInstance(podSpec, 0);
     }
@@ -312,7 +312,7 @@ public class DefaultStepFactoryTest {
         UUID configId = configStore.store(serviceSpec);
         configStore.setTargetConfig(configId);
 
-        stepFactory = new DefaultStepFactory(configStore, stateStore, Optional.empty());
+        stepFactory = new DeployStepFactory(configStore, stateStore, Optional.empty());
 
         return new DefaultPodInstance(podSpec, 0);
     }
@@ -343,7 +343,7 @@ public class DefaultStepFactoryTest {
         UUID configId = configStore.store(serviceSpec);
         configStore.setTargetConfig(configId);
 
-        stepFactory = new DefaultStepFactory(configStore, stateStore, Optional.empty());
+        stepFactory = new DeployStepFactory(configStore, stateStore, Optional.empty());
 
         return new DefaultPodInstance(podSpec, 0);
     }
@@ -378,7 +378,7 @@ public class DefaultStepFactoryTest {
         UUID configId = configStore.store(serviceSpec);
         configStore.setTargetConfig(configId);
 
-        stepFactory = new DefaultStepFactory(configStore, stateStore, Optional.empty());
+        stepFactory = new DeployStepFactory(configStore, stateStore, Optional.empty());
 
         return new DefaultPodInstance(podSpec, 0);
     }

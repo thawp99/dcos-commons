@@ -529,27 +529,19 @@ public class SchedulerBuilder {
             Map<String, RawPlan> yamlPlans) {
         final String plansType;
         final Collection<Plan> plans;
+
+        PlanGenerator planGenerator = new PlanGenerator(new DeployStepFactory(configStore, stateStore, namespace));
         if (!yamlPlans.isEmpty()) {
             plansType = "YAML";
             // Note: Any internal Plan generation must only be AFTER updating/validating the config. Otherwise plans
             // may look at the old config and mistakenly think they're COMPLETE.
-            PlanGenerator planGenerator = new PlanGenerator(configStore, stateStore, namespace);
             plans = yamlPlans.entrySet().stream()
-                    .map(e -> planGenerator.generate(e.getValue(), e.getKey(), serviceSpec.getPods()))
+                    .map(e -> planGenerator.generateFromYamlSpec(e.getValue(), e.getKey(), serviceSpec.getPods()))
                     .collect(Collectors.toList());
         } else {
             plansType = "generated";
-            try {
-                if (!configStore.list().isEmpty()) {
-                    PlanFactory planFactory = new DeployPlanFactory(
-                            new DefaultPhaseFactory(new DefaultStepFactory(configStore, stateStore, namespace)));
-                    plans = Arrays.asList(planFactory.getPlan(configStore.fetch(configStore.getTargetConfig())));
-                } else {
-                    plans = Collections.emptyList();
-                }
-            } catch (ConfigStoreException e) {
-                throw new IllegalStateException(e);
-            }
+            // No YAML plans were provided. Generate a default deploy plan based on the declared pods.
+            plans = Arrays.asList(planGenerator.generateDeployFromPods(serviceSpec));
         }
 
         logger.info("Got {} {} plan{}: {}",

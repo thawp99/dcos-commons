@@ -217,7 +217,11 @@ public class DefaultRecoveryPlanManager implements PlanManager {
         phases.addAll(inProgressPhases);
         phases.addAll(overridePhases);
 
-        return DeployPlanFactory.getPlan(Constants.RECOVERY_PLAN_NAME, phases, new ParallelStrategy<>());
+        return new DefaultPlan(
+                Constants.RECOVERY_PLAN_NAME,
+                phases,
+                new ParallelStrategy<>(),
+                Collections.emptyList());
     }
 
     private boolean isTaskPermanentlyFailed(Protos.TaskInfo taskInfo) {

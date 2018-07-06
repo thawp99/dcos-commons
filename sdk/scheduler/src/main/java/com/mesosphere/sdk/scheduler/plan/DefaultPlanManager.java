@@ -10,7 +10,6 @@ import java.util.*;
  */
 public class DefaultPlanManager implements PlanManager {
     private Plan plan;
-    private final Object lock = new Object();
 
     /**
      * Creates a new plan manager for the provided {@link Plan}, which will not be set to an interrupted state.
@@ -33,16 +32,12 @@ public class DefaultPlanManager implements PlanManager {
 
     @Override
     public Plan getPlan() {
-        synchronized (lock) {
-            return plan;
-        }
+        return plan;
     }
 
     @Override
     public void setPlan(Plan plan) {
-        synchronized (lock) {
-            this.plan = plan;
-        }
+        this.plan = plan;
     }
 
     @Override

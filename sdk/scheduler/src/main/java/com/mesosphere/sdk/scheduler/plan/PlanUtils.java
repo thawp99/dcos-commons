@@ -2,6 +2,7 @@ package com.mesosphere.sdk.scheduler.plan;
 
 import com.mesosphere.sdk.offer.LoggingUtils;
 import com.mesosphere.sdk.offer.TaskUtils;
+
 import org.slf4j.Logger;
 
 import java.util.*;
@@ -143,6 +144,10 @@ public class PlanUtils {
         } else if (anyMatch(Status.STARTED, candidateStatuses)) {
             result = Status.STARTED;
             LOGGER.debug("({} status={}) At least one candidate has status '{}'", parentName, result, Status.STARTED);
+        } else if (anyMatch(Status.RESERVING, candidateStatuses) || anyMatch(Status.RESERVED, candidateStatuses)) {
+            result = Status.RESERVING;
+            LOGGER.debug("({} status={}) At least one candidate has status '{}' or '{}'", parentName, result, 
+                    Status.RESERVING, Status.RESERVED);
         } else {
             result = Status.ERROR;
             LOGGER.warn("({} status={}) Unexpected state. Children: {} Candidates: {}",

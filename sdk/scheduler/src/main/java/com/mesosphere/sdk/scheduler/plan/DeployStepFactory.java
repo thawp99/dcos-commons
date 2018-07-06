@@ -22,14 +22,14 @@ import java.util.stream.Collectors;
 /**
  * This class is a default implementation of the {@link StepFactory} interface.
  */
-public class DefaultStepFactory implements StepFactory {
-    private static final Logger LOGGER = LoggingUtils.getLogger(DefaultStepFactory.class);
+public class DeployStepFactory implements StepFactory {
+    private static final Logger LOGGER = LoggingUtils.getLogger(DeployStepFactory.class);
 
     private final ConfigTargetStore configTargetStore;
     private final StateStore stateStore;
     private final Optional<String> namespace;
 
-    public DefaultStepFactory(
+    public DeployStepFactory(
             ConfigTargetStore configTargetStore,
             StateStore stateStore,
             Optional<String> namespace) {

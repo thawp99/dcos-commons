@@ -110,7 +110,8 @@ public class DefaultScheduler extends AbstractScheduler {
         }
 
         // Get the recovery and deploy plan managers. We store the PlanManagers, not the underlying Plans, because
-        // PlanManagers can change their plans at any time.
+        // PlanManagers can change their plans at any time. For example, the developer could have defined a
+        // PlanCustomizer which can overwrite the plan.
         this.deploymentPlanManager = planCoordinator.getPlanManagers().stream()
                 .filter(pm -> pm.getPlan().isDeployPlan())
                 .findAny()

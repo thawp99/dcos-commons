@@ -74,7 +74,7 @@ public class DefaultPlanCoordinatorTest extends DefaultCapabilitiesTestSuite {
     private DefaultServiceSpec serviceSpecification;
     private DefaultServiceSpec serviceSpecificationB;
     private PlanScheduler planScheduler;
-    private PhaseFactory phaseFactory;
+    private StepFactory stepFactory;
 
     @Before
     public void setupTest() throws Exception {
@@ -93,8 +93,7 @@ public class DefaultPlanCoordinatorTest extends DefaultCapabilitiesTestSuite {
         frameworkStore.storeFrameworkId(TestConstants.FRAMEWORK_ID);
         StateStore stateStore = new StateStore(persister);
 
-        StepFactory stepFactory = new DefaultStepFactory(mock(ConfigStore.class), stateStore, Optional.empty());
-        phaseFactory = new DefaultPhaseFactory(stepFactory);
+        stepFactory = new DeployStepFactory(mock(ConfigStore.class), stateStore, Optional.empty());
 
         planScheduler = new PlanScheduler(
                 new OfferEvaluator(
@@ -149,7 +148,7 @@ public class DefaultPlanCoordinatorTest extends DefaultCapabilitiesTestSuite {
 
     @Test
     public void testOnePlanManagerPendingSufficientOffer() throws Exception {
-        final Plan plan = new DeployPlanFactory(phaseFactory).getPlan(serviceSpecification);
+        final Plan plan = new PlanGenerator(stepFactory).generateDeployFromPods(serviceSpecification);
         final PlanManager planManager = DefaultPlanManager.createProceeding(plan);
         final DefaultPlanCoordinator coordinator =
                 new DefaultPlanCoordinator(Optional.empty(), Arrays.asList(planManager));
@@ -222,7 +221,7 @@ public class DefaultPlanCoordinatorTest extends DefaultCapabilitiesTestSuite {
 
     @Test
     public void testOnePlanManagerPendingInSufficientOffer() throws Exception {
-        final Plan plan = new DeployPlanFactory(phaseFactory).getPlan(serviceSpecification);
+        final Plan plan = new PlanGenerator(stepFactory).generateDeployFromPods(serviceSpecification);
         final DefaultPlanCoordinator coordinator = new DefaultPlanCoordinator(
                 Optional.empty(), Arrays.asList(DefaultPlanManager.createInterrupted(plan)));
         Assert.assertEquals(
@@ -234,7 +233,7 @@ public class DefaultPlanCoordinatorTest extends DefaultCapabilitiesTestSuite {
 
     @Test
     public void testOnePlanManagerComplete() throws Exception {
-        final Plan plan = new DeployPlanFactory(phaseFactory).getPlan(serviceSpecification);
+        final Plan plan = new PlanGenerator(stepFactory).generateDeployFromPods(serviceSpecification);
         plan.getChildren().get(0).getChildren().get(0).forceComplete();
         final DefaultPlanCoordinator coordinator = new DefaultPlanCoordinator(
                 Optional.empty(), Arrays.asList(DefaultPlanManager.createInterrupted(plan)));
@@ -247,8 +246,8 @@ public class DefaultPlanCoordinatorTest extends DefaultCapabilitiesTestSuite {
 
     @Test
     public void testTwoPlanManagersPendingPlansDisjointAssets() throws Exception {
-        final Plan planA = new DeployPlanFactory(phaseFactory).getPlan(serviceSpecification);
-        final Plan planB = new DeployPlanFactory(phaseFactory).getPlan(serviceSpecificationB);
+        final Plan planA = new PlanGenerator(stepFactory).generateDeployFromPods(serviceSpecification);
+        final Plan planB = new PlanGenerator(stepFactory).generateDeployFromPods(serviceSpecificationB);
         final DefaultPlanCoordinator coordinator = new DefaultPlanCoordinator(
                 Optional.empty(),
                 Arrays.asList(DefaultPlanManager.createProceeding(planA), DefaultPlanManager.createProceeding(planB)));
@@ -261,11 +260,11 @@ public class DefaultPlanCoordinatorTest extends DefaultCapabilitiesTestSuite {
 
     @Test
     public void testTwoPlanManagersPendingPlansSameAssets() throws Exception {
-        final Plan planA = new DeployPlanFactory(phaseFactory).getPlan(serviceSpecification);
+        final Plan planA = new PlanGenerator(stepFactory).generateDeployFromPods(serviceSpecification);
         ServiceSpec serviceSpecB = DefaultServiceSpec.newBuilder(serviceSpecification)
                 .name(serviceSpecification.getName() + "-B")
                 .build();
-        final Plan planB = new DeployPlanFactory(phaseFactory).getPlan(serviceSpecB);
+        final Plan planB = new PlanGenerator(stepFactory).generateDeployFromPods(serviceSpecB);
         final DefaultPlanCoordinator coordinator = new DefaultPlanCoordinator(
                 Optional.empty(),
                 Arrays.asList(DefaultPlanManager.createProceeding(planA), DefaultPlanManager.createProceeding(planB)));
@@ -278,8 +277,8 @@ public class DefaultPlanCoordinatorTest extends DefaultCapabilitiesTestSuite {
 
     @Test
     public void testTwoPlanManagersCompletePlans() throws Exception {
-        final Plan planA = new DeployPlanFactory(phaseFactory).getPlan(serviceSpecification);
-        final Plan planB = new DeployPlanFactory(phaseFactory).getPlan(serviceSpecification);
+        final Plan planA = new PlanGenerator(stepFactory).generateDeployFromPods(serviceSpecification);
+        final Plan planB = new PlanGenerator(stepFactory).generateDeployFromPods(serviceSpecification);
         final DefaultPlanManager planManagerA = DefaultPlanManager.createInterrupted(planA);
         final DefaultPlanManager planManagerB = DefaultPlanManager.createInterrupted(planB);
 
@@ -297,8 +296,8 @@ public class DefaultPlanCoordinatorTest extends DefaultCapabilitiesTestSuite {
 
     @Test
     public void testTwoPlanManagersPendingPlansSameAssetsDifferentOrder() throws Exception {
-        final Plan planA = new DeployPlanFactory(phaseFactory).getPlan(serviceSpecification);
-        final Plan planB = new DeployPlanFactory(phaseFactory).getPlan(serviceSpecification);
+        final Plan planA = new PlanGenerator(stepFactory).generateDeployFromPods(serviceSpecification);
+        final Plan planB = new PlanGenerator(stepFactory).generateDeployFromPods(serviceSpecification);
         final DefaultPlanCoordinator coordinator = new DefaultPlanCoordinator(
                 Optional.empty(),
                 Arrays.asList(DefaultPlanManager.createProceeding(planA), DefaultPlanManager.createProceeding(planB)));
