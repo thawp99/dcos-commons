@@ -39,16 +39,6 @@ public enum Status {
     WAITING,
 
     /**
-     * Searching for footprint in the cluster. This only applies to steps which define resources to be reserved.
-     */
-    RESERVING,
-
-    /**
-     * Footprint has been acquired in the cluster. This only applies to steps which define resources to be reserved.
-     */
-    RESERVED,
-
-    /**
      * Initial plan state (after any reservations have been completed), waiting for plan strategy to mark the step
      * active so that it can perform its work.
      */

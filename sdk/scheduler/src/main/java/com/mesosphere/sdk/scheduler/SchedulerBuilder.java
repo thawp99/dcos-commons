@@ -408,17 +408,18 @@ public class SchedulerBuilder {
         }
         logger.info(deployPlan.get().toString());
 
-        PlanManager deploymentPlanManager = DefaultPlanManager.createProceeding(deployPlan.get());
-        PlanManager recoveryPlanManager = getRecoveryPlanManager(
-                serviceSpec,
-                Optional.ofNullable(recoveryPlanOverriderFactory),
-                stateStore,
-                configStore,
+        PlanCoordinator planCoordinator = buildPlanCoordinator(
+                DefaultPlanManager.createProceeding(deployPlan.get()),
+                getRecoveryPlanManager(
+                        serviceSpec,
+                        Optional.ofNullable(recoveryPlanOverriderFactory),
+                        stateStore,
+                        configStore,
+                        plans,
+                        namespace),
+                getDecommissionPlanManager(serviceSpec, stateStore, namespace),
                 plans,
                 namespace);
-        Optional<PlanManager> decommissionPlanManager = getDecommissionPlanManager(serviceSpec, stateStore, namespace);
-        PlanCoordinator planCoordinator = buildPlanCoordinator(
-                deploymentPlanManager, recoveryPlanManager, decommissionPlanManager, plans, namespace);
 
         return new DefaultScheduler(
                 serviceSpec,
@@ -530,7 +531,7 @@ public class SchedulerBuilder {
         final String plansType;
         final Collection<Plan> plans;
 
-        PlanGenerator planGenerator = new PlanGenerator(new DeployStepFactory(configStore, stateStore, namespace));
+        PlanGenerator planGenerator = new PlanGenerator(new DeploymentStepFactory(configStore, stateStore, namespace));
         if (!yamlPlans.isEmpty()) {
             plansType = "YAML";
             // Note: Any internal Plan generation must only be AFTER updating/validating the config. Otherwise plans
@@ -541,7 +542,7 @@ public class SchedulerBuilder {
         } else {
             plansType = "generated";
             // No YAML plans were provided. Generate a default deploy plan based on the declared pods.
-            plans = Arrays.asList(planGenerator.generateDeployFromPods(serviceSpec));
+            plans = Arrays.asList(planGenerator.generateDeployFromPods(serviceSpec.getPods()));
         }
 
         logger.info("Got {} {} plan{}: {}",

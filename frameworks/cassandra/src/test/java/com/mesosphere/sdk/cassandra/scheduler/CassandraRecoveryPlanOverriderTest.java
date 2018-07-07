@@ -1,7 +1,7 @@
 package com.mesosphere.sdk.cassandra.scheduler;
 
 import com.mesosphere.sdk.scheduler.plan.DefaultPodInstance;
-import com.mesosphere.sdk.scheduler.plan.DeployStepFactory;
+import com.mesosphere.sdk.scheduler.plan.DeploymentStepFactory;
 import com.mesosphere.sdk.scheduler.plan.Phase;
 import com.mesosphere.sdk.scheduler.plan.Plan;
 import com.mesosphere.sdk.scheduler.plan.PodInstanceRequirement;
@@ -130,7 +130,7 @@ public class CassandraRecoveryPlanOverriderTest {
     }
 
     private Plan getReplacePlan(ConfigStore<ServiceSpec> configStore) throws Exception {
-        return new PlanGenerator(new DeployStepFactory(configStore, stateStore, Optional.empty()))
+        return new PlanGenerator(new DeploymentStepFactory(configStore, stateStore, Optional.empty()))
                 .generateFromYamlSpec(rawSpec.getPlans().get("replace"), "replace", serviceSpec.getPods());
     }
 }
