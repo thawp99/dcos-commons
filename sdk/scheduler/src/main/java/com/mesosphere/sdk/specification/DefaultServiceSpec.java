@@ -2,14 +2,8 @@ package com.mesosphere.sdk.specification;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.core.JsonParseException;
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
-import com.fasterxml.jackson.databind.module.SimpleModule;
-import com.fasterxml.jackson.databind.node.TextNode;
 import com.google.common.annotations.VisibleForTesting;
 import com.mesosphere.sdk.config.ConfigurationComparator;
 import com.mesosphere.sdk.config.ConfigurationFactory;
@@ -38,7 +32,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.stream.Collectors;
 
 
 /**
@@ -85,9 +78,6 @@ public class DefaultServiceSpec implements ServiceSpec {
         this.principal = principal;
         this.user = getUser(user, pods);
         this.goalState = goalState == null ? GoalState.RUNNING : goalState;
-        if (goalState == GoalState.FINISHED) {
-            throw new IllegalArgumentException("Service goal state is deprecated FINISHED. Did you mean FINISH?");
-        }
         this.region = region;
         this.webUrl = webUrl;
         // If no zookeeperConnection string is configured, fallback to the default value.
@@ -300,9 +290,8 @@ public class DefaultServiceSpec implements ServiceSpec {
     public static ConfigurationFactory<ServiceSpec> getConfigurationFactory(
             ServiceSpec serviceSpec,
             Collection<Class<?>> additionalSubtypesToRegister) {
-        ConfigurationFactory<ServiceSpec> factory = new ConfigFactory(
-                additionalSubtypesToRegister,
-                ConfigFactory.getReferenceTerminalGoalState(serviceSpec));
+
+        ConfigurationFactory<ServiceSpec> factory = new ConfigFactory(additionalSubtypesToRegister);
 
         final byte[] serviceSpecBytes;
         try {
@@ -394,12 +383,11 @@ public class DefaultServiceSpec implements ServiceSpec {
                 DefaultSecretSpec.class);
 
         private final ObjectMapper objectMapper;
-        private final GoalState referenceTerminalGoalState;
 
         /**
          * @see DefaultServiceSpec#getConfigurationFactory(ServiceSpec, Collection)
          */
-        private ConfigFactory(Collection<Class<?>> additionalSubtypes, GoalState goalState) {
+        private ConfigFactory(Collection<Class<?>> additionalSubtypes) {
             objectMapper = SerializationUtils.registerDefaultModules(new ObjectMapper());
             objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
             for (Class<?> subtype : defaultRegisteredSubtypes) {
@@ -408,21 +396,6 @@ public class DefaultServiceSpec implements ServiceSpec {
             for (Class<?> subtype : additionalSubtypes) {
                 objectMapper.registerSubtypes(subtype);
             }
-
-            SimpleModule module = new SimpleModule();
-            module.addDeserializer(GoalState.class, new GoalStateDeserializer());
-            objectMapper.registerModule(module);
-
-            referenceTerminalGoalState = goalState;
-        }
-
-        private ConfigFactory(Collection<Class<?>> additionalSubtypes) {
-            this(additionalSubtypes, GoalState.ONCE);
-        }
-
-        @VisibleForTesting
-        public GoalStateDeserializer getGoalStateDeserializer() {
-            return new GoalStateDeserializer();
         }
 
         @Override
@@ -436,52 +409,9 @@ public class DefaultServiceSpec implements ServiceSpec {
             }
         }
 
-        private static GoalState getReferenceTerminalGoalState(ServiceSpec serviceSpec) {
-            Collection<TaskSpec> serviceTasks =
-                    serviceSpec.getPods().stream().flatMap(p -> p.getTasks().stream()).collect(Collectors.toList());
-            for (TaskSpec taskSpec : serviceTasks) {
-                if (taskSpec.getGoal().equals(GoalState.FINISHED)) {
-                    return GoalState.FINISHED;
-                }
-            }
-
-            return GoalState.ONCE;
-        }
-
         @VisibleForTesting
         public static final Collection<Class<?>> getDefaultRegisteredSubtypes() {
             return defaultRegisteredSubtypes;
-        }
-
-        /**
-         * Custom deserializer for goal states to accomodate transition from FINISHED to ONCE/FINISH.
-         */
-        public class GoalStateDeserializer extends StdDeserializer<GoalState> {
-
-            public GoalStateDeserializer() {
-                this(null);
-            }
-
-            protected GoalStateDeserializer(Class<?> vc) {
-                super(vc);
-            }
-
-            @Override
-            public GoalState deserialize(
-                    JsonParser p, DeserializationContext ctxt) throws IOException, JsonParseException {
-                String value = ((TextNode) p.getCodec().readTree(p)).textValue();
-
-                if (value.equals("FINISHED") || value.equals("ONCE")) {
-                    return referenceTerminalGoalState;
-                } else if (value.equals("FINISH")) {
-                    return GoalState.FINISH;
-                } else if (value.equals("RUNNING")) {
-                    return GoalState.RUNNING;
-                } else {
-                    LOGGER.warn("Found unknown goal state in config store: {}", value);
-                    return GoalState.UNKNOWN;
-                }
-            }
         }
     }
 

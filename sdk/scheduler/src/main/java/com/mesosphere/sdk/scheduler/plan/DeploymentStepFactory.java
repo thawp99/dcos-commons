@@ -22,14 +22,14 @@ import java.util.stream.Collectors;
 /**
  * This class is a default implementation of the {@link StepFactory} interface.
  */
-public class DeployStepFactory implements StepFactory {
-    private static final Logger LOGGER = LoggingUtils.getLogger(DeployStepFactory.class);
+public class DeploymentStepFactory {
+    private static final Logger LOGGER = LoggingUtils.getLogger(DeploymentStepFactory.class);
 
     private final ConfigTargetStore configTargetStore;
     private final StateStore stateStore;
     private final Optional<String> namespace;
 
-    public DeployStepFactory(
+    public DeploymentStepFactory(
             ConfigTargetStore configTargetStore,
             StateStore stateStore,
             Optional<String> namespace) {
@@ -38,7 +38,10 @@ public class DeployStepFactory implements StepFactory {
         this.namespace = namespace;
     }
 
-    @Override
+    /**
+     * Returns a new {@link DeploymentStep} which is configured to launch the specified {@code tasksToLaunch} within the
+     * specified {@code podInstance}.
+     */
     public Step getStep(PodInstance podInstance, Collection<String> tasksToLaunch) {
         try {
             LOGGER.info("Generating step for pod: {}, with tasks: {}", podInstance.getName(), tasksToLaunch);
@@ -55,7 +58,7 @@ public class DeployStepFactory implements StepFactory {
                     PodInstanceRequirement.newBuilder(podInstance, tasksToLaunch).build(),
                     stateStore,
                     namespace)
-                    .updateInitialStatus(taskInfos.isEmpty() ? Status.PENDING : getStatus(podInstance, taskInfos));
+                    .updateInitialStatus(taskInfos.isEmpty() ? Status.PENDING : getStepStatus(podInstance, taskInfos));
         } catch (Exception e) {
             LOGGER.error("Failed to generate Step with exception: ", e);
             return new DeploymentStep(
@@ -99,20 +102,20 @@ public class DeployStepFactory implements StepFactory {
         }
     }
 
-    private <T> boolean hasDuplicates(Collection<T> collection) {
+    private static <T> boolean hasDuplicates(Collection<T> collection) {
         return new HashSet<T>(collection).size() < collection.size();
     }
 
-    private Status getStatus(PodInstance podInstance, List<Protos.TaskInfo> taskInfos)
+    private Status getStepStatus(PodInstance podInstance, List<Protos.TaskInfo> taskInfos)
             throws ConfigStoreException, TaskException {
 
-        List<Status> statuses = new ArrayList<>();
+        List<Status> taskStatuses = new ArrayList<>();
         UUID targetConfigId = configTargetStore.getTargetConfig();
         for (Protos.TaskInfo taskInfo : taskInfos) {
-            statuses.add(getStatus(podInstance, taskInfo, targetConfigId));
+            taskStatuses.add(getStatus(podInstance, taskInfo, targetConfigId));
         }
 
-        for (Status status : statuses) {
+        for (Status status : taskStatuses) {
             if (!status.equals(Status.COMPLETE)) {
                 return Status.PENDING;
             }
@@ -127,11 +130,11 @@ public class DeployStepFactory implements StepFactory {
         boolean hasReachedGoal = hasReachedGoalState(taskInfo, goalState);
 
         boolean isOnTarget;
-        if (hasReachedGoal && (goalState.equals(GoalState.FINISHED) || goalState.equals(GoalState.ONCE))) {
+        if (hasReachedGoal && !goalState.shouldRelaunchOnConfigChange()) {
             LOGGER.info("Automatically on target configuration due to having reached {} goal.", goalState);
             isOnTarget = true;
         } else {
-            isOnTarget = isOnTarget(taskInfo, targetConfigId);
+            isOnTarget = new TaskLabelReader(taskInfo).getTargetConfiguration().equals(targetConfigId);
         }
 
         boolean hasPermanentlyFailed = FailureUtils.isPermanentlyFailed(taskInfo);
@@ -145,41 +148,23 @@ public class DeployStepFactory implements StepFactory {
             LOGGER.info("Deployment of task '{}' is PENDING: {}", taskInfo.getName(), bitsLog);
             return Status.PENDING;
         }
-
-    }
-
-    private static boolean isOnTarget(Protos.TaskInfo taskInfo, UUID targetConfigId) throws TaskException {
-        UUID taskConfigId = new TaskLabelReader(taskInfo).getTargetConfiguration();
-        return targetConfigId.equals(taskConfigId);
     }
 
     @VisibleForTesting
     protected boolean hasReachedGoalState(Protos.TaskInfo taskInfo, GoalState goalState) throws TaskException {
-        Optional<Protos.TaskStatus> status = stateStore.fetchStatus(taskInfo.getName());
-        if (!status.isPresent()) {
+        Optional<Protos.TaskStatus> statusOptional = stateStore.fetchStatus(taskInfo.getName());
+        if (!statusOptional.isPresent()) {
             return false;
         }
-
-        if (goalState.equals(GoalState.RUNNING)) {
-            switch (status.get().getState()) {
-                case TASK_RUNNING:
-
-                    return new TaskLabelReader(taskInfo).isReadinessCheckSucceeded(status.get());
-
-                default:
-                    return false;
-            }
-        } else if (goalState.equals(GoalState.ONCE) ||
-                goalState.equals(GoalState.FINISH) ||
-                goalState.equals(GoalState.FINISHED)) {
-            switch (status.get().getState()) {
-                case TASK_FINISHED:
-                    return true;
-                default:
-                    return false;
-            }
+        Protos.TaskStatus status = statusOptional.get();
+        if (!goalState.shouldRunContinuously()) {
+            // The goal state is for the task to have finished running. Did it do that?:
+            return status.getState().equals(Protos.TaskState.TASK_FINISHED);
+        } else if (status.getState().equals(Protos.TaskState.TASK_RUNNING)) {
+            // The goal state is for the task to be running (and to have passed any readiness check). Did it do that?
+            return new TaskLabelReader(taskInfo).isReadinessCheckSucceeded(status);
         } else {
-            throw new TaskException("Unexpected goal state encountered: " + goalState);
+            return false;
         }
     }
 }

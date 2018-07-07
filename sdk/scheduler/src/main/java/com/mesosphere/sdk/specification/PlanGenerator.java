@@ -1,7 +1,6 @@
 package com.mesosphere.sdk.specification;
 
 import com.mesosphere.sdk.offer.Constants;
-import com.mesosphere.sdk.offer.LoggingUtils;
 import com.mesosphere.sdk.scheduler.plan.*;
 import com.mesosphere.sdk.scheduler.plan.strategy.CanaryStrategy;
 import com.mesosphere.sdk.scheduler.plan.strategy.DependencyStrategy;
@@ -14,8 +13,6 @@ import com.mesosphere.sdk.specification.yaml.RawPhase;
 import com.mesosphere.sdk.specification.yaml.RawPlan;
 import com.mesosphere.sdk.specification.yaml.WriteOnceLinkedHashMap;
 
-import org.slf4j.Logger;
-
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -24,8 +21,7 @@ import java.util.stream.Collectors;
  */
 public class PlanGenerator {
 
-    private static final Logger LOGGER = LoggingUtils.getLogger(PlanGenerator.class);
-
+    private static final String FOOTPRINT_PHASE_NAME = "footprint";
     private static final String DEFAULT_POD_INDEX_LABEL = "default";
 
     // Note: We avoid reusing strategies, because they keep internal state. Instead we only keep StrategyGenerators here
@@ -46,43 +42,49 @@ public class PlanGenerator {
     private static final Set<String> PARALLEL_STRATEGY_TYPES =
             new HashSet<>(Arrays.asList("parallel", "parallel-canary"));
 
-    private final StepFactory stepFactory;
+    private final DeploymentStepFactory deploymentStepFactory;
 
-    public PlanGenerator(StepFactory stepFactory) {
-        this.stepFactory = stepFactory;
+    public PlanGenerator(DeploymentStepFactory deploymentStepFactory) {
+        this.deploymentStepFactory = deploymentStepFactory;
     }
 
     /**
-     * Generates a default {@code deploy} plan based on the content of the pods. This creates a serial plan where the
-     * pods are deployed in the order that they were declared.
+     * Generates a default {@code deploy} plan based on the content of the provided pods. This creates a serial plan
+     * where the pods are deployed in the order that they were declared.
      *
-     * @param serviceSpec the service spec containing the pods to be deployed
-     * @return a new deploy plan describing a reasonable default deployment
+     * @param podSpecs the pods as defined in the service spec, for which a default deployment plan will be created
+     * @return a deploy plan describing a default serial deployment in the order the pods were provided
      */
-    public Plan generateDeployFromPods(ServiceSpec serviceSpec) {
-        List<Phase> phases = serviceSpec.getPods().stream()
+    public Plan generateDeployFromPods(Collection<PodSpec> podSpecs) {
+        // TODO(nick) the deploymentStepFactory is able to tell whether steps are complete are not
+        List<Phase> phases = podSpecs.stream()
                 .map(podSpec -> new DefaultPhase(
                         podSpec.getType(),
-                        generatePodSteps(podSpec),
+                        generatePodSteps(deploymentStepFactory, podSpec),
                         new SerialStrategy<>(),
                         Collections.emptyList()))
                 .collect(Collectors.toList());
-        return new DefaultPlan(Constants.DEPLOY_PLAN_NAME, phases, new SerialStrategy<>());
+        addFootprintPhase(podSpecs, phases);
+        return new DefaultPlan(Constants.DEPLOY_PLAN_NAME, phases);
     }
 
     /**
-     * Generates a custom plan based on the provided YAML {@link RawPlan}. The resulting output is effectively a
-     * rendered version of the provided specification.
+     * Generates a custom plan based on the provided YAML {@link RawPlan} specification. The resulting output is
+     * effectively a rendered version of that specification.
      *
      * @param rawPlan the YAML plan to be rendered
      * @param planName the name to use for the returned plan
-     * @param podSpecs
+     * @param podSpecs specifications of pods referenced by the plan
      * @return a new plan object representing the provided plan spec
      */
     public Plan generateFromYamlSpec(RawPlan rawPlan, String planName, Collection<PodSpec> podSpecs) {
-        final List<Phase> phases = rawPlan.getPhases().entrySet().stream()
-                .map(entry-> generatePhase(entry.getValue(), entry.getKey(), podSpecs))
+        // TODO(nick) the deploymentStepFactory is able to tell whether steps are complete are not
+        List<Phase> phases = rawPlan.getPhases().entrySet().stream()
+                .map(entry-> generatePhase(deploymentStepFactory, entry.getValue(), entry.getKey(), podSpecs))
                 .collect(Collectors.toList());
+        if (planName.equals(Constants.DEPLOY_PLAN_NAME)) {
+            addFootprintPhase(podSpecs, phases);
+        }
         return new DefaultPlan(
                 planName,
                 phases,
@@ -90,21 +92,38 @@ public class PlanGenerator {
                 Collections.emptyList());
     }
 
-    private List<Step> generatePodSteps(PodSpec podSpec) {
+    private static void addFootprintPhase(Collection<PodSpec> podSpecs, List<Phase> phases) {
+        List<Step> footprintSteps = Collections.emptyList(); // TODO(nick) generate using podSpecs
+        if (!footprintSteps.isEmpty()) {
+            // Insert an initial footprint phase:
+            phases.add(0, new DefaultPhase(
+                    FOOTPRINT_PHASE_NAME,
+                    footprintSteps,
+                    new ParallelStrategy<>(),
+                    Collections.emptyList()));
+        }
+    }
+
+    private static List<Step> generatePodSteps(DeploymentStepFactory deploymentStepFactory, PodSpec podSpec) {
         List<Step> steps = new ArrayList<>();
         for (int i = 0; i < podSpec.getCount(); i++) {
             PodInstance podInstance = new DefaultPodInstance(podSpec, i);
 
+            // By default, launch all tasks specified in the pod:
             List<String> tasksToLaunch = podInstance.getPod().getTasks().stream()
                     .map(taskSpec -> taskSpec.getName())
                     .collect(Collectors.toList());
 
-            steps.add(stepFactory.getStep(podInstance, tasksToLaunch));
+            steps.add(deploymentStepFactory.getStep(podInstance, tasksToLaunch));
         }
         return steps;
     }
 
-    private Phase generatePhase(RawPhase rawPhase, String phaseName, Collection<PodSpec> podSpecs) {
+    private static Phase generatePhase(
+            DeploymentStepFactory deploymentStepFactory,
+            RawPhase rawPhase,
+            String phaseName,
+            Collection<PodSpec> podSpecs) {
         Optional<PodSpec> podSpecOptional = podSpecs.stream()
                 .filter(podSpec -> podSpec.getType().equals(rawPhase.getPod()))
                 .findFirst();
@@ -116,17 +135,19 @@ public class PlanGenerator {
 
         if (rawPhase.getSteps() == null || rawPhase.getSteps().isEmpty()) {
             // No custom steps: Generate default behavior based on pod content
-            return generatePhaseWithDefaultSteps(rawPhase.getStrategy(), phaseName, podSpec);
+            return generatePhaseWithDefaultSteps(deploymentStepFactory, rawPhase.getStrategy(), phaseName, podSpec);
         }
         // Flatten map data: pod index (or 'default') to task deployment within that pod
         Map<String, List<List<String>>> podIndexToTasks = mapPodIndexesToTasks(phaseName, rawPhase.getSteps());
 
         if (PARALLEL_STRATEGY_TYPES.contains(rawPhase.getStrategy())) {
             // Custom steps with a parallel strategy: Custom dependencies are required
-            return generatePhaseWithCustomParallelSteps(rawPhase.getStrategy(), phaseName, podSpec, podIndexToTasks);
+            return generatePhaseWithCustomParallelSteps(
+                    deploymentStepFactory, rawPhase.getStrategy(), phaseName, podSpec, podIndexToTasks);
         } else {
             // Custom steps with a serial strategy: No custom dependencies needed
-            return generatePhaseWithCustomSerialSteps(rawPhase.getStrategy(), phaseName, podSpec, podIndexToTasks);
+            return generatePhaseWithCustomSerialSteps(
+                    deploymentStepFactory, rawPhase.getStrategy(), phaseName, podSpec, podIndexToTasks);
         }
     }
 
@@ -134,7 +155,11 @@ public class PlanGenerator {
      * When no custom steps are defined, we use a default plan. Each pod instance will deploy its tasks in parallel with
      * one step per pod instance, and any cross-pod deployment determined by the configured phase strategy.
      */
-    private Phase generatePhaseWithDefaultSteps(String strategy, String phaseName, PodSpec podSpec) {
+    private static Phase generatePhaseWithDefaultSteps(
+            DeploymentStepFactory deploymentStepFactory,
+            String strategy,
+            String phaseName,
+            PodSpec podSpec) {
         // Shortcut: No custom steps are defined. By default, each pod instance will deploy its tasks in parallel
         // (one step per pod instance), with cross-pod deployment determined by the configured phase strategy.
         List<Step> steps = new ArrayList<>();
@@ -142,7 +167,7 @@ public class PlanGenerator {
             List<String> allTaskNames = podSpec.getTasks().stream()
                     .map(taskSpec -> taskSpec.getName())
                     .collect(Collectors.toList());
-            steps.add(generateStep(new DefaultPodInstance(podSpec, i), allTaskNames));
+            steps.add(deploymentStepFactory.getStep(new DefaultPodInstance(podSpec, i), allTaskNames));
         }
         return new DefaultPhase(
                 phaseName, steps, getPhaseStrategyGenerator(strategy).generate(steps), Collections.emptyList());
@@ -152,8 +177,12 @@ public class PlanGenerator {
      * Custom steps are defined, but with a serial (or serial-canary) phase. We can make do without needing any custom
      * dependency logic. The phase steps will each launch one or more tasks in the various pods.
      */
-    private Phase generatePhaseWithCustomSerialSteps(
-            String strategy, String phaseName, PodSpec podSpec, Map<String, List<List<String>>> podIndexToTasks) {
+    private static Phase generatePhaseWithCustomSerialSteps(
+            DeploymentStepFactory deploymentStepFactory,
+            String strategy,
+            String phaseName,
+            PodSpec podSpec,
+            Map<String, List<List<String>>> podIndexToTasks) {
         List<Step> steps = new ArrayList<>();
         for (int i = 0; i < podSpec.getCount(); ++i) {
             List<List<String>> taskLists = podIndexToTasks.get(String.valueOf(i));
@@ -169,7 +198,7 @@ public class PlanGenerator {
             // Add steps to the sequence, where each step may launch one or more tasks. Because the phase strategy
             // is serial, this is all we need to do. For example, [[a, b], c] => step[a, b], step[c]
             for (List<String> taskNames : taskLists) {
-                steps.add(generateStep(new DefaultPodInstance(podSpec, i), taskNames));
+                steps.add(deploymentStepFactory.getStep(new DefaultPodInstance(podSpec, i), taskNames));
             }
         }
         return new DefaultPhase(
@@ -182,8 +211,12 @@ public class PlanGenerator {
      * graph that enforces any serial deployment within each of the pods, while still allowing cross-pod deployment to
      * run in parallel.
      */
-    private Phase generatePhaseWithCustomParallelSteps(
-            String strategy, String phaseName, PodSpec podSpec, Map<String, List<List<String>>> podIndexToTasks) {
+    private static Phase generatePhaseWithCustomParallelSteps(
+            DeploymentStepFactory deploymentStepFactory,
+            String strategy,
+            String phaseName,
+            PodSpec podSpec,
+            Map<String, List<List<String>>> podIndexToTasks) {
         DependencyStrategyHelper<Step> dependencies = new DependencyStrategyHelper<>(Collections.emptyList());
         List<Step> phaseSteps = new ArrayList<>();
         for (int i = 0; i < podSpec.getCount(); ++i) {
@@ -199,7 +232,7 @@ public class PlanGenerator {
                 }
             }
             for (List<String> taskNames : taskLists) {
-                Step step = generateStep(new DefaultPodInstance(podSpec, i), taskNames);
+                Step step = deploymentStepFactory.getStep(new DefaultPodInstance(podSpec, i), taskNames);
                 if (podSteps.isEmpty()) {
                     // If there are no parent steps, we should at least ensure that this step is listed in the strategy.
                     dependencies.addElement(step);
@@ -219,15 +252,6 @@ public class PlanGenerator {
             phaseStrategy = new CanaryStrategy(phaseStrategy, phaseSteps);
         }
         return new DefaultPhase(phaseName, phaseSteps, phaseStrategy, Collections.emptyList());
-    }
-
-    private Step generateStep(PodInstance podInstance, List<String> tasksToLaunch) {
-        try {
-            return stepFactory.getStep(podInstance, tasksToLaunch);
-        } catch (Exception e) {
-            LOGGER.error("Failed to generate step", e);
-            throw new IllegalStateException(e);
-        }
     }
 
     /**

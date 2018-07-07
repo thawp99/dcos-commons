@@ -4,10 +4,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.databind.JsonMappingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.google.common.collect.Iterables;
-import com.mesosphere.sdk.config.SerializationUtils;
 import com.mesosphere.sdk.dcos.Capabilities;
 import com.mesosphere.sdk.dcos.DcosConstants;
 import com.mesosphere.sdk.offer.evaluate.EvaluationOutcome;
@@ -656,48 +653,6 @@ public class DefaultServiceSpecTest {
 
         Capabilities.overrideCapabilities(capabilities);
         DefaultScheduler.newBuilder(serviceSpec, SCHEDULER_CONFIG, new MemPersister()).build();
-    }
-
-    @Test
-    public void testGoalStateDeserializesOldValues() throws Exception {
-        ClassLoader classLoader = getClass().getClassLoader();
-        File file = new File(classLoader.getResource("valid-minimal.yml").getFile());
-        DefaultServiceSpec serviceSpec = DefaultServiceSpec.newGenerator(file, SCHEDULER_CONFIG).build();
-
-        ObjectMapper objectMapper = SerializationUtils.registerDefaultModules(new ObjectMapper());
-        DefaultServiceSpec.ConfigFactory.GoalStateDeserializer goalStateDeserializer =
-                ((DefaultServiceSpec.ConfigFactory) DefaultServiceSpec.getConfigurationFactory(serviceSpec))
-                        .getGoalStateDeserializer();
-
-        SimpleModule module = new SimpleModule();
-        module.addDeserializer(GoalState.class, goalStateDeserializer);
-        objectMapper.registerModule(module);
-
-        Assert.assertEquals(
-                GoalState.ONCE, SerializationUtils.fromString("\"ONCE\"", GoalState.class, objectMapper));
-        Assert.assertEquals(
-                GoalState.ONCE, SerializationUtils.fromString("\"FINISHED\"", GoalState.class, objectMapper));
-    }
-
-    @Test
-    public void testGoalStateDeserializesNewValues() throws Exception {
-        ClassLoader classLoader = getClass().getClassLoader();
-        File file = new File(classLoader.getResource("valid-finished.yml").getFile());
-        DefaultServiceSpec serviceSpec = DefaultServiceSpec.newGenerator(file, SCHEDULER_CONFIG).build();
-
-        ObjectMapper objectMapper = SerializationUtils.registerDefaultModules(new ObjectMapper());
-        DefaultServiceSpec.ConfigFactory.GoalStateDeserializer goalStateDeserializer =
-                ((DefaultServiceSpec.ConfigFactory) DefaultServiceSpec.getConfigurationFactory(serviceSpec))
-                        .getGoalStateDeserializer();
-
-        SimpleModule module = new SimpleModule();
-        module.addDeserializer(GoalState.class, goalStateDeserializer);
-        objectMapper.registerModule(module);
-
-        Assert.assertEquals(
-                GoalState.FINISHED, SerializationUtils.fromString("\"ONCE\"", GoalState.class, objectMapper));
-        Assert.assertEquals(
-                GoalState.FINISHED, SerializationUtils.fromString("\"FINISHED\"", GoalState.class, objectMapper));
     }
 
     @Test(expected = IllegalArgumentException.class)

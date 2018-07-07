@@ -5,7 +5,6 @@ import com.mesosphere.sdk.offer.LoggingUtils;
 import com.mesosphere.sdk.offer.TaskException;
 import com.mesosphere.sdk.offer.TaskUtils;
 import com.mesosphere.sdk.scheduler.recovery.FailureUtils;
-import com.mesosphere.sdk.specification.GoalState;
 import com.mesosphere.sdk.specification.PodInstance;
 import com.mesosphere.sdk.specification.ServiceSpec;
 import com.mesosphere.sdk.specification.TaskSpec;
@@ -90,10 +89,12 @@ public class StateStoreUtils {
                 throw new TaskException("Failed to determine TaskSpec from TaskInfo: " + info);
             }
 
-            boolean markedFailed = FailureUtils.isPermanentlyFailed(info);
-            boolean isPermanentlyFailed = markedFailed && taskSpec.get().getGoal() == GoalState.RUNNING;
-
-            if (TaskUtils.needsRecovery(taskSpec.get(), status) || isPermanentlyFailed) {
+            boolean isPermanentlyFailed = FailureUtils.isPermanentlyFailed(info);
+            // Tasks with a goal state of finished should never leave the purview of their original
+            // plan, so they are not the responsibility of recovery.  Recovery only applies to Tasks
+            // which reached their goal state of RUNNING and then later failed.
+            if (taskSpec.get().getGoal().shouldRunContinuously() &&
+                    (TaskUtils.isRecoveryNeeded(status) || isPermanentlyFailed)) {
                 LOGGER.info("{} needs recovery with state: {}, goal state: {}, marked permanently failed: {}",
                         info.getName(), status.getState(), taskSpec.get().getGoal().name(), isPermanentlyFailed);
                 results.add(info);

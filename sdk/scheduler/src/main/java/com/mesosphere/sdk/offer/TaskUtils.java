@@ -401,10 +401,10 @@ public class TaskUtils {
             }
 
             // Additional filtering:
-            // - Only relaunch tasks that have a RUNNING goal state. Don't worry about FINISHED tasks.
+            // - Only relaunch tasks that should run continuously (goal=RUNNING), don't worry about FINISHED tasks.
             // - Don't relaunch tasks that haven't been launched yet (as indicated by presence in allLaunchedTasks)
             taskSpecsToLaunch = taskSpecsToLaunch.stream()
-                    .filter(taskSpec -> taskSpec.getGoal() == GoalState.RUNNING &&
+                    .filter(taskSpec -> taskSpec.getGoal().shouldRunContinuously() &&
                             allLaunchedTaskNames.contains(TaskSpec.getInstanceName(entry.getKey(), taskSpec.getName())))
                     .collect(Collectors.toList());
 
@@ -484,14 +484,7 @@ public class TaskUtils {
      * Returns whether the provided {@link TaskStatus} has reached a terminal state.
      */
     public static boolean isTerminal(Protos.TaskStatus taskStatus) {
-        return isTerminal(taskStatus.getState());
-    }
-
-    /**
-     * Returns whether the provided {@link TaskState} has reached a terminal state.
-     */
-    public static boolean isTerminal(Protos.TaskState taskState) {
-        switch (taskState) {
+        switch (taskStatus.getState()) {
             case TASK_FINISHED:
             case TASK_FAILED:
             case TASK_KILLED:
@@ -517,21 +510,10 @@ public class TaskUtils {
      * @return true if recovery is needed, false otherwise.
      */
     public static boolean needsRecovery(TaskSpec taskSpec, Protos.TaskStatus taskStatus) {
-        // Tasks with a goal state of finished should never leave the purview of their original
-        // plan, so they are not the responsibility of recovery.  Recovery only applies to Tasks
-        // which reached their goal state of RUNNING and then later failed.
-        switch (taskSpec.getGoal()) {
-            case ONCE:
-            case FINISH:
-            case FINISHED:
-                return false;
-            case RUNNING:
-            case UNKNOWN:
-                return isRecoveryNeeded(taskStatus);
-        }
-
-        throw new IllegalStateException(
-                String.format("Unable to determine whether recovery is needed for TaskSpec: %s", taskSpec));
+        // Tasks with a terminal goal state should never leave the purview of their original plan, so they are not the
+        // responsibility of recovery.  Recovery only applies to tasks which reached their goal state of RUNNING and
+        // then later failed.
+        return taskSpec.getGoal().shouldRunContinuously() && isRecoveryNeeded(taskStatus);
     }
 
     /**

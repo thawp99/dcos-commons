@@ -1,7 +1,7 @@
 package com.mesosphere.sdk.specification;
 
 import com.mesosphere.sdk.scheduler.SchedulerConfig;
-import com.mesosphere.sdk.scheduler.plan.DeployStepFactory;
+import com.mesosphere.sdk.scheduler.plan.DeploymentStepFactory;
 import com.mesosphere.sdk.scheduler.plan.Phase;
 import com.mesosphere.sdk.scheduler.plan.Plan;
 import com.mesosphere.sdk.specification.yaml.RawPlan;
@@ -43,7 +43,7 @@ public class PlanGeneratorTest {
 
         Assert.assertNotNull(serviceSpec);
 
-        PlanGenerator generator = new PlanGenerator(new DeployStepFactory(configStore, stateStore, Optional.empty()));
+        PlanGenerator generator = new PlanGenerator(new DeploymentStepFactory(configStore, stateStore, Optional.empty()));
         for (Map.Entry<String, RawPlan> entry : rawServiceSpec.getPlans().entrySet()) {
             Plan plan = generator.generateFromYamlSpec(entry.getValue(), entry.getKey(), serviceSpec.getPods());
             Assert.assertNotNull(plan);

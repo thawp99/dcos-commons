@@ -208,8 +208,8 @@ public class DefaultScheduler extends AbstractScheduler {
             deploymentCompletionWasStored = true;
         }
 
-        if (goalState == GoalState.FINISH && deployCompleted && recoveryPlanManager.getPlan().isComplete()) {
-            // Service has a FINISH goal state, and deployment+recovery are complete. Tell upstream to uninstall us.
+        if (!goalState.shouldRunContinuously() && deployCompleted && recoveryPlanManager.getPlan().isComplete()) {
+            // Service has a terminal goal state, and deployment+recovery are complete. Tell upstream to uninstall us.
             return ClientStatusResponse.readyToUninstall();
         } else if (!deployCompleted // TODO(nickbp): use footprint plan once available
                 || isReplacing(recoveryPlanManager)) { // TODO(nickbp): footprint plan should have replacing tasks?

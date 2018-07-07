@@ -176,7 +176,7 @@ public class DeploymentStep extends AbstractStep {
             case TASK_RUNNING: {
                 Protos.TaskInfo taskInfo = tasks.get(status.getTaskId()).getTaskInfo();
                 GoalState goalState = getGoalState(status.getTaskId());
-                if (goalState.equals(GoalState.RUNNING)
+                if (goalState.shouldRunContinuously()
                         && new TaskLabelReader(taskInfo).isReadinessCheckSucceeded(status)) {
                     setTaskStatus(status.getTaskId(), Status.COMPLETE);
                 } else {
@@ -186,10 +186,7 @@ public class DeploymentStep extends AbstractStep {
             }
             case TASK_FINISHED: {
                 GoalState goalState = getGoalState(status.getTaskId());
-                if (
-                        goalState.equals(GoalState.ONCE) ||
-                        goalState.equals(GoalState.FINISH) ||
-                        goalState.equals(GoalState.FINISHED)){
+                if (!goalState.shouldRunContinuously()) {
                     setTaskStatus(status.getTaskId(), Status.COMPLETE);
                 } else {
                     setTaskStatus(status.getTaskId(), Status.PENDING);
@@ -204,19 +201,19 @@ public class DeploymentStep extends AbstractStep {
     }
 
     private GoalState getGoalState(Protos.TaskID taskId) {
+        final String taskName;
         try {
-            String taskName = CommonIdUtils.toTaskName(taskId);
-            GoalState goalState = goalStateByTaskName.get(taskName);
-            if (goalState == null) {
-                throw new TaskException(String.format(
-                        "No GoalState found for task %s: %s", taskName, goalStateByTaskName));
-            }
-            return goalState;
+            taskName = CommonIdUtils.toTaskName(taskId);
         } catch (TaskException e) {
-            logger.error(String.format("Failed to get goal state for step %s with status %s",
-                    getName(), getStatus()), e);
-            return GoalState.UNKNOWN;
+            throw new IllegalStateException(String.format(
+                    "Unable to extract task name from task id %s for determining goal state", taskId.getValue()));
         }
+        GoalState goalState = goalStateByTaskName.get(taskName);
+        if (goalState == null) {
+            throw new IllegalStateException(String.format(
+                    "No GoalState found for task %s: %s", taskName, goalStateByTaskName));
+        }
+        return goalState;
     }
 
     /**
