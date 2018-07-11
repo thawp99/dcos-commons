@@ -72,7 +72,14 @@ public class PlansQueries {
             return planNotFoundResponse(planName);
         }
         Plan plan = planManagerOptional.get().getPlan();
-        plan.updateParameters(parameters);
+        for (Phase phase : plan.getChildren()) {
+            for (Step step : phase.getChildren()) {
+                if (step instanceof LaunchStep) {
+                    ((LaunchStep) step).setEnvironment(parameters);
+                }
+            }
+        }
+
         if (plan.isComplete()) {
             plan.restart();
         }

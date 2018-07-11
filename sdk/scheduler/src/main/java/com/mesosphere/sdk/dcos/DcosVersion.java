@@ -1,7 +1,8 @@
 package com.mesosphere.sdk.dcos;
 
 import com.mesosphere.sdk.offer.LoggingUtils;
-import com.mesosphere.sdk.specification.PlanGenerator;
+import com.mesosphere.sdk.scheduler.plan.PlanGenerator;
+
 import org.json.JSONObject;
 
 import com.google.common.annotations.VisibleForTesting;

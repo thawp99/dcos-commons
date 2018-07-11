@@ -205,7 +205,7 @@ public class DefaultPlanManagerTest {
         parameters.put("PARAM1", "value1");
         plan.updateParameters(parameters);
 
-        verify(mockStep, times(1)).updateParameters(parameters);
+        verify(mockStep, times(1)).setEnvironment(parameters);
     }
 
     @Test

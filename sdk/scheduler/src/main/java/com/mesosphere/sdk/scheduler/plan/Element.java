@@ -4,7 +4,6 @@ import com.mesosphere.sdk.scheduler.plan.strategy.Strategy;
 import org.apache.mesos.Protos.TaskStatus;
 
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -97,12 +96,6 @@ public interface Element {
     default boolean isRunning() {
         return getStatus().isRunning();
     }
-
-    /**
-     * Provides the Element with a set of named string parameters that it can either use on start or provide to
-     * children, if it has any.
-     */
-    default void updateParameters(Map<String, String> parameters) { }
 
     /**
      * Returns a reasonable user-visible status message.

@@ -18,12 +18,25 @@ public enum GoalStateOverride {
 
     /** The definition of the default no-override state. Refer to the task's {@link GoalState} setting. */
     NONE("NONE", "STARTING"),
-    /** The definition of the "PAUSED" override state, where commands are replaced with sleep()s. */
+    /**
+     * The definition of the "PAUSED" override state, where commands are replaced with sleep()s. This is functionally
+     * similar to "FOOTPRINT", except "PAUSED" is something that's manually requested by the operator in order to debug
+     * a running task. We treat the two as separate overrides so that we don't confuse the two intents.
+     */
     PAUSED("PAUSED", "PAUSING"),
+    /**
+     * The definition of the "FOOTPRINT" override state, where commands are replaced with sleep()s while the service is
+     * acquiring footprint at the start of deployment. This is functionally similar to "PAUSED" in that a sleep command
+     * is being invoked, except "FOOTPRINT" is managed automatically by the service. We treat the two as separate
+     * overrides so that we don't confuse the two intents.
+     *
+     * TODO(nickbp): can we do this without actually launching the task?
+     */
+    FOOTPRINT("FOOTPRINT", "FOOTPRINT"),
     /** The definition of the "DECOMMISSIONED" override state, where tasks are removed from the service. */
     DECOMMISSIONED("DECOMMISSIONED", "DECOMMISSIONING");
 
-    /** Sleep forever when pausing. */
+    /** Sleep forever when PAUSED or FOOTPRINT. */
     public static final String PAUSE_COMMAND =
             String.format(
                     "echo This task is PAUSED, sleeping ... && " +
@@ -31,8 +44,8 @@ public enum GoalStateOverride {
                     Constants.LONG_DECLINE_SECONDS);
 
     /**
-     * Plans should not assume that a paused task has fulfilled the requirement of its dependencies.  Returnging an
-     * always failing readinness check guarantees that plan execution does not interpret a paused task as being ready.
+     * Plans should not assume that a paused task has fulfilled the requirement of its dependencies. Returning an always
+     * failing readiness check guarantees that plan execution does not interpret a paused task as being ready.
      */
     public static final String PAUSE_READINESS_COMMAND = "exit 1";
 

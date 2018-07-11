@@ -43,13 +43,6 @@ public interface ParentElement<C extends Element> extends Element, Interruptible
         return getStrategy().isInterrupted();
     }
 
-    @Override
-    default void updateParameters(Map<String, String> parameters) {
-        for (C child : getChildren()) {
-            child.updateParameters(parameters);
-        }
-    }
-
     /**
      * Updates children.
      */

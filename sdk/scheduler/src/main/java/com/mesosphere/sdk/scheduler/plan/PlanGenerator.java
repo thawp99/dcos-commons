@@ -1,7 +1,6 @@
-package com.mesosphere.sdk.specification;
+package com.mesosphere.sdk.scheduler.plan;
 
 import com.mesosphere.sdk.offer.Constants;
-import com.mesosphere.sdk.scheduler.plan.*;
 import com.mesosphere.sdk.scheduler.plan.strategy.CanaryStrategy;
 import com.mesosphere.sdk.scheduler.plan.strategy.DependencyStrategy;
 import com.mesosphere.sdk.scheduler.plan.strategy.DependencyStrategyHelper;
@@ -9,12 +8,16 @@ import com.mesosphere.sdk.scheduler.plan.strategy.ParallelStrategy;
 import com.mesosphere.sdk.scheduler.plan.strategy.SerialStrategy;
 import com.mesosphere.sdk.scheduler.plan.strategy.Strategy;
 import com.mesosphere.sdk.scheduler.plan.strategy.StrategyGenerator;
+import com.mesosphere.sdk.specification.PodInstance;
+import com.mesosphere.sdk.specification.PodSpec;
 import com.mesosphere.sdk.specification.yaml.RawPhase;
 import com.mesosphere.sdk.specification.yaml.RawPlan;
 import com.mesosphere.sdk.specification.yaml.WriteOnceLinkedHashMap;
 
 import java.util.*;
 import java.util.stream.Collectors;
+
+import org.apache.commons.collections.CollectionUtils;
 
 /**
  * Generates {@link Plan}s as defined in a YAML plan specification.
@@ -57,6 +60,11 @@ public class PlanGenerator {
      */
     public Plan generateDeployFromPods(Collection<PodSpec> podSpecs) {
         // TODO(nick) the deploymentStepFactory is able to tell whether steps are complete are not
+        /* TODO(nick) steps:
+         * - init tasks needing footprint with FOOTPRINT+PENDING
+         * - when footprint is found for a given pod, set FOOTPRINT+IN_PROGRESS for the pod's tasks
+         * - when footprint reservation is completed, set FOOTPRINT+COMPLETE for the pod's tasks
+         * - once all footprint is found, clear all FOOTPRINT overrides */
         List<Phase> phases = podSpecs.stream()
                 .map(podSpec -> new DefaultPhase(
                         podSpec.getType(),
@@ -80,7 +88,7 @@ public class PlanGenerator {
     public Plan generateFromYamlSpec(RawPlan rawPlan, String planName, Collection<PodSpec> podSpecs) {
         // TODO(nick) the deploymentStepFactory is able to tell whether steps are complete are not
         List<Phase> phases = rawPlan.getPhases().entrySet().stream()
-                .map(entry-> generatePhase(deploymentStepFactory, entry.getValue(), entry.getKey(), podSpecs))
+                .map(entry -> generatePhase(deploymentStepFactory, entry.getValue(), entry.getKey(), podSpecs))
                 .collect(Collectors.toList());
         if (planName.equals(Constants.DEPLOY_PLAN_NAME)) {
             addFootprintPhase(podSpecs, phases);
@@ -114,7 +122,7 @@ public class PlanGenerator {
                     .map(taskSpec -> taskSpec.getName())
                     .collect(Collectors.toList());
 
-            steps.add(deploymentStepFactory.getStep(podInstance, tasksToLaunch));
+            steps.add(deploymentStepFactory.getLaunchStep(podInstance, tasksToLaunch));
         }
         return steps;
     }
@@ -133,7 +141,7 @@ public class PlanGenerator {
         }
         PodSpec podSpec = podSpecOptional.get();
 
-        if (rawPhase.getSteps() == null || rawPhase.getSteps().isEmpty()) {
+        if (CollectionUtils.isEmpty(rawPhase.getSteps())) {
             // No custom steps: Generate default behavior based on pod content
             return generatePhaseWithDefaultSteps(deploymentStepFactory, rawPhase.getStrategy(), phaseName, podSpec);
         }
@@ -167,7 +175,7 @@ public class PlanGenerator {
             List<String> allTaskNames = podSpec.getTasks().stream()
                     .map(taskSpec -> taskSpec.getName())
                     .collect(Collectors.toList());
-            steps.add(deploymentStepFactory.getStep(new DefaultPodInstance(podSpec, i), allTaskNames));
+            steps.add(deploymentStepFactory.getLaunchStep(new DefaultPodInstance(podSpec, i), allTaskNames));
         }
         return new DefaultPhase(
                 phaseName, steps, getPhaseStrategyGenerator(strategy).generate(steps), Collections.emptyList());
@@ -198,7 +206,7 @@ public class PlanGenerator {
             // Add steps to the sequence, where each step may launch one or more tasks. Because the phase strategy
             // is serial, this is all we need to do. For example, [[a, b], c] => step[a, b], step[c]
             for (List<String> taskNames : taskLists) {
-                steps.add(deploymentStepFactory.getStep(new DefaultPodInstance(podSpec, i), taskNames));
+                steps.add(deploymentStepFactory.getLaunchStep(new DefaultPodInstance(podSpec, i), taskNames));
             }
         }
         return new DefaultPhase(
@@ -232,7 +240,7 @@ public class PlanGenerator {
                 }
             }
             for (List<String> taskNames : taskLists) {
-                Step step = deploymentStepFactory.getStep(new DefaultPodInstance(podSpec, i), taskNames);
+                Step step = deploymentStepFactory.getLaunchStep(new DefaultPodInstance(podSpec, i), taskNames);
                 if (podSteps.isEmpty()) {
                     // If there are no parent steps, we should at least ensure that this step is listed in the strategy.
                     dependencies.addElement(step);

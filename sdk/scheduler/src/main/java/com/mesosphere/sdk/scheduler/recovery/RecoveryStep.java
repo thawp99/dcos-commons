@@ -2,7 +2,7 @@ package com.mesosphere.sdk.scheduler.recovery;
 
 import com.mesosphere.sdk.offer.LaunchOfferRecommendation;
 import com.mesosphere.sdk.offer.OfferRecommendation;
-import com.mesosphere.sdk.scheduler.plan.DeploymentStep;
+import com.mesosphere.sdk.scheduler.plan.LaunchStep;
 import com.mesosphere.sdk.scheduler.plan.PodInstanceRequirement;
 import com.mesosphere.sdk.scheduler.recovery.constrain.LaunchConstrainer;
 import com.mesosphere.sdk.state.StateStore;
@@ -14,9 +14,9 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * An extension of {@link DeploymentStep} meant for use with {@link DefaultRecoveryPlanManager}.
+ * An extension of {@link LaunchStep} meant for use with {@link DefaultRecoveryPlanManager}.
  */
-public class RecoveryStep extends DeploymentStep {
+public class RecoveryStep extends LaunchStep {
 
     private final LaunchConstrainer launchConstrainer;
 

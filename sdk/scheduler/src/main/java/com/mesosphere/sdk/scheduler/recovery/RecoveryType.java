@@ -4,7 +4,7 @@ package com.mesosphere.sdk.scheduler.recovery;
  * This indicates the type of recovery taking place.  Transient indicates an in place recovery with no posibility of
  * data-loss.  A permanent recovery is destructive and implies loss of data associated with a Pod.
  */
-public enum RecoveryType {
+public enum RecoveryType { // TODO(nick): turn into a generic OperationType? Footprint/Launch/Recovery(transient/perm)
 
     /**
      * No action is needed. No-op.

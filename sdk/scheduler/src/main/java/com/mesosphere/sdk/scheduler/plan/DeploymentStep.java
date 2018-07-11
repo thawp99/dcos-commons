@@ -18,14 +18,13 @@ import java.util.stream.Collectors;
 /**
  * Step which implements the deployment of a pod.
  */
-public class DeploymentStep extends AbstractStep {
+public abstract class DeploymentStep extends AbstractStep {
 
     protected final StateStore stateStore;
     protected final PodInstanceRequirement podInstanceRequirement;
     private final Map<String, GoalState> goalStateByTaskName;
 
     private final List<String> errors = new ArrayList<>();
-    private final Map<String, String> parameters = new HashMap<>();
     private Map<Protos.TaskID, TaskStatusPair> tasks = new HashMap<>();
     private final AtomicBoolean prepared = new AtomicBoolean(false);
 
@@ -73,22 +72,8 @@ public class DeploymentStep extends AbstractStep {
     }
 
     @Override
-    public void updateParameters(Map<String, String> parameters) {
-        this.parameters.clear();
-        this.parameters.putAll(parameters);
-    }
-
-    @Override
     public void start() {
         // Do nothing.
-    }
-
-    @Override
-    public Optional<PodInstanceRequirement> getPodInstanceRequirement() {
-        return Optional.of(
-                PodInstanceRequirement.newBuilder(podInstanceRequirement)
-                        .environment(parameters)
-                        .build());
     }
 
     private static Set<Protos.TaskID> getTaskIds(Collection<OfferRecommendation> recommendations) {

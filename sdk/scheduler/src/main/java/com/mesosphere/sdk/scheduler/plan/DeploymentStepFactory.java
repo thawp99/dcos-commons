@@ -1,6 +1,5 @@
 package com.mesosphere.sdk.scheduler.plan;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.mesosphere.sdk.offer.LoggingUtils;
 import com.mesosphere.sdk.offer.TaskException;
 import com.mesosphere.sdk.offer.TaskUtils;
@@ -9,8 +8,8 @@ import com.mesosphere.sdk.scheduler.recovery.FailureUtils;
 import com.mesosphere.sdk.specification.GoalState;
 import com.mesosphere.sdk.specification.PodInstance;
 import com.mesosphere.sdk.specification.TaskSpec;
-import com.mesosphere.sdk.state.ConfigStoreException;
 import com.mesosphere.sdk.state.ConfigTargetStore;
+import com.mesosphere.sdk.state.GoalStateOverride;
 import com.mesosphere.sdk.state.StateStore;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.mesos.Protos;
@@ -23,6 +22,7 @@ import java.util.stream.Collectors;
  * This class is a default implementation of the {@link StepFactory} interface.
  */
 public class DeploymentStepFactory {
+
     private static final Logger LOGGER = LoggingUtils.getLogger(DeploymentStepFactory.class);
 
     private final ConfigTargetStore configTargetStore;
@@ -38,39 +38,41 @@ public class DeploymentStepFactory {
         this.namespace = namespace;
     }
 
+    public Step getFootprintStep(PodInstance podInstance) {
+        DeploymentStep step = new FootprintStep(podInstance, stateStore, namespace);
+        try {
+            LOGGER.info("Generating footprint step for pod: {}", podInstance.getName());
+            boolean stepComplete = isFootprintAcquired(stateStore, podInstance, configTargetStore.getTargetConfig());
+            return step.updateInitialStatus(stepComplete ? Status.COMPLETE : Status.PENDING);
+        } catch (Exception e) {
+            LOGGER.error("Failed to generate FootprintStep", e);
+            return step.addError(ExceptionUtils.getStackTrace(e));
+        }
+    }
+
     /**
      * Returns a new {@link DeploymentStep} which is configured to launch the specified {@code tasksToLaunch} within the
      * specified {@code podInstance}.
      */
-    public Step getStep(PodInstance podInstance, Collection<String> tasksToLaunch) {
+    public Step getLaunchStep(PodInstance podInstance, Collection<String> tasksToLaunch) {
+        DeploymentStep step = new LaunchStep(
+                TaskUtils.getStepName(podInstance, tasksToLaunch),
+                PodInstanceRequirement.newBuilder(podInstance, tasksToLaunch).build(),
+                stateStore,
+                namespace);
         try {
-            LOGGER.info("Generating step for pod: {}, with tasks: {}", podInstance.getName(), tasksToLaunch);
-            validate(podInstance, tasksToLaunch);
-
-            List<Protos.TaskInfo> taskInfos = TaskUtils.getTaskNames(podInstance, tasksToLaunch).stream()
-                    .map(taskName -> stateStore.fetchTask(taskName))
-                    .filter(taskInfoOptional -> taskInfoOptional.isPresent())
-                    .map(taskInfoOptional -> taskInfoOptional.get())
-                    .collect(Collectors.toList());
-
-            return new DeploymentStep(
-                    TaskUtils.getStepName(podInstance, tasksToLaunch),
-                    PodInstanceRequirement.newBuilder(podInstance, tasksToLaunch).build(),
-                    stateStore,
-                    namespace)
-                    .updateInitialStatus(taskInfos.isEmpty() ? Status.PENDING : getStepStatus(podInstance, taskInfos));
+            LOGGER.info("Generating launch step for pod: {}, with tasks: {}", podInstance.getName(), tasksToLaunch);
+            validateLaunch(podInstance, tasksToLaunch);
+            boolean stepComplete =
+                    isDeploymentComplete(stateStore, podInstance, configTargetStore.getTargetConfig(), tasksToLaunch);
+            return step.updateInitialStatus(stepComplete ? Status.COMPLETE : Status.PENDING);
         } catch (Exception e) {
-            LOGGER.error("Failed to generate Step with exception: ", e);
-            return new DeploymentStep(
-                    podInstance.getName(),
-                    PodInstanceRequirement.newBuilder(podInstance, Collections.emptyList()).build(),
-                    stateStore,
-                    namespace)
-                    .addError(ExceptionUtils.getStackTrace(e));
+            LOGGER.error("Failed to generate LaunchStep", e);
+            return step.addError(ExceptionUtils.getStackTrace(e));
         }
     }
 
-    private void validate(PodInstance podInstance, Collection<String> tasksToLaunch) throws Exception {
+    private static void validateLaunch(PodInstance podInstance, Collection<String> tasksToLaunch) throws Exception {
         List<TaskSpec> taskSpecsToLaunch = podInstance.getPod().getTasks().stream()
                 .filter(taskSpec -> tasksToLaunch.contains(taskSpec.getName()))
                 .collect(Collectors.toList());
@@ -87,11 +89,9 @@ public class DeploymentStepFactory {
         }
 
         List<String> dnsPrefixes = taskSpecsToLaunch.stream()
-                .map(taskSpec -> taskSpec.getDiscovery())
-                .filter(discovery -> discovery.isPresent())
-                .map(discovery -> discovery.get().getPrefix())
-                .filter(prefix -> prefix.isPresent())
-                .map(prefix -> prefix.get())
+                .filter(taskSpec -> taskSpec.getDiscovery().isPresent()
+                        && taskSpec.getDiscovery().get().getPrefix().isPresent())
+                .map(taskSpec -> taskSpec.getDiscovery().get().getPrefix().get())
                 .collect(Collectors.toList());
 
         if (hasDuplicates(dnsPrefixes)) {
@@ -106,53 +106,83 @@ public class DeploymentStepFactory {
         return new HashSet<T>(collection).size() < collection.size();
     }
 
-    private Status getStepStatus(PodInstance podInstance, List<Protos.TaskInfo> taskInfos)
-            throws ConfigStoreException, TaskException {
+    private static boolean isFootprintAcquired(StateStore stateStore, PodInstance podInstance, UUID targetConfigId)
+            throws TaskException {
+        for (String taskName : TaskUtils.getTaskNames(podInstance)) {
+            GoalStateOverride.Status goalOverrideStatus = stateStore.fetchGoalOverrideStatus(taskName);
+            if (goalOverrideStatus.target.equals(GoalStateOverride.FOOTPRINT)
+                    && !goalOverrideStatus.progress.equals(GoalStateOverride.Progress.COMPLETE)) {
+                // Task is pending on an existing footprint operation -- resume footprint operation
+                return false;
+            }
 
-        List<Status> taskStatuses = new ArrayList<>();
-        UUID targetConfigId = configTargetStore.getTargetConfig();
-        for (Protos.TaskInfo taskInfo : taskInfos) {
-            taskStatuses.add(getStatus(podInstance, taskInfo, targetConfigId));
-        }
-
-        for (Status status : taskStatuses) {
-            if (!status.equals(Status.COMPLETE)) {
-                return Status.PENDING;
+            Optional<Protos.TaskInfo> taskInfoOptional = stateStore.fetchTask(taskName);
+            if (!taskInfoOptional.isPresent()) {
+                // Task is not present -- needs initial footprint
+                return false;
+            }
+            if (!new TaskLabelReader(taskInfoOptional.get()).getTargetConfiguration().equals(targetConfigId)) {
+                // Task configuration does not match target configuration -- needs footprint update
+                return false;
             }
         }
 
-        return Status.COMPLETE;
+        // All tasks in the pod have a configuration matching the target, and none of them are resuming an ongoing
+        // footprint operation.
+        return true;
     }
 
-    private Status getStatus(PodInstance podInstance, Protos.TaskInfo taskInfo, UUID targetConfigId)
+    private static boolean isDeploymentComplete(
+            StateStore stateStore, PodInstance podInstance, UUID targetConfigId, Collection<String> tasksToLaunch)
             throws TaskException {
-        GoalState goalState = TaskUtils.getGoalState(podInstance, taskInfo.getName());
-        boolean hasReachedGoal = hasReachedGoalState(taskInfo, goalState);
+        if (tasksToLaunch.isEmpty()) {
+            return false;
+        }
+        for (String taskName : TaskUtils.getTaskNames(podInstance, tasksToLaunch)) {
+            if (!isTaskDeployed(stateStore, podInstance, targetConfigId, taskName)) {
+                return false;
+            }
+        }
+        return true;
+    }
 
+    private static boolean isTaskDeployed(
+            StateStore stateStore, PodInstance podInstance, UUID targetConfigId, String taskName) throws TaskException {
+        Optional<Protos.TaskInfo> taskInfoOptional = stateStore.fetchTask(taskName);
+        if (!taskInfoOptional.isPresent()) {
+            return false;
+        }
+        Protos.TaskInfo taskInfo = taskInfoOptional.get();
+        GoalState goalState = TaskUtils.getGoalState(podInstance, taskInfoOptional.get().getName());
+
+        boolean hasReachedGoal = hasReachedGoalState(goalState, taskInfo, stateStore.fetchStatus(taskName));
         boolean isOnTarget;
         if (hasReachedGoal && !goalState.shouldRelaunchOnConfigChange()) {
-            LOGGER.info("Automatically on target configuration due to having reached {} goal.", goalState);
+            // The task has a goal state of ONCE: If the task EVER successfully finished running, don't launch it again,
+            // regardless of any changes to target configuration. Pretend that it's already on the target configuration.
+            LOGGER.info("Automatically on target configuration due to having reached {} goal", goalState);
             isOnTarget = true;
         } else {
             isOnTarget = new TaskLabelReader(taskInfo).getTargetConfiguration().equals(targetConfigId);
         }
 
+        // If the task has permanently failed, it's being handled by the recovery plan.
+        // Leave it alone for deploy plan purposes.
         boolean hasPermanentlyFailed = FailureUtils.isPermanentlyFailed(taskInfo);
 
-        String bitsLog = String.format("onTarget=%s reachedGoal=%s permanentlyFailed=%s",
+        String bitsLog = String.format("onConfigTarget=%s reachedGoalState=%s permanentlyFailed=%s",
                 isOnTarget, hasReachedGoal, hasPermanentlyFailed);
         if ((isOnTarget && hasReachedGoal) || hasPermanentlyFailed) {
             LOGGER.info("Deployment of task '{}' is COMPLETE: {}", taskInfo.getName(), bitsLog);
-            return Status.COMPLETE;
+            return true;
         } else {
             LOGGER.info("Deployment of task '{}' is PENDING: {}", taskInfo.getName(), bitsLog);
-            return Status.PENDING;
+            return false;
         }
     }
 
-    @VisibleForTesting
-    protected boolean hasReachedGoalState(Protos.TaskInfo taskInfo, GoalState goalState) throws TaskException {
-        Optional<Protos.TaskStatus> statusOptional = stateStore.fetchStatus(taskInfo.getName());
+    private static boolean hasReachedGoalState(
+            GoalState goalState, Protos.TaskInfo taskInfo, Optional<Protos.TaskStatus> statusOptional) {
         if (!statusOptional.isPresent()) {
             return false;
         }

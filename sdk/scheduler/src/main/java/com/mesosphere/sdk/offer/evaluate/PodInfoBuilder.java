@@ -198,7 +198,7 @@ public class PodInfoBuilder {
         return builder.build();
     }
 
-    private Protos.TaskInfo.Builder createTaskInfo(
+    private static Protos.TaskInfo.Builder createTaskInfo(
             PodInstance podInstance,
             TaskSpec taskSpec,
             Map<String, String> environment,
@@ -281,9 +281,7 @@ public class PodInfoBuilder {
             taskInfoBuilder.setDiscovery(getDiscoveryInfo(taskSpec.getDiscovery().get(), podInstance.getIndex()));
         }
 
-
-        taskInfoBuilder.setContainer(getContainerInfo(podInstance.getPod(), true, true));
-
+        taskInfoBuilder.setContainer(getContainerInfo(podInstance.getPod(), true));
 
         setHealthCheck(taskInfoBuilder, serviceName, podInstance, taskSpec, override, schedulerConfig);
         setReadinessCheck(taskInfoBuilder, serviceName, podInstance, taskSpec, override, schedulerConfig);
@@ -292,7 +290,7 @@ public class PodInfoBuilder {
         return taskInfoBuilder;
     }
 
-    private Protos.ExecutorInfo.Builder getExecutorInfoBuilder(
+    private static Protos.ExecutorInfo.Builder getExecutorInfoBuilder(
             PodInstance podInstance,
             Protos.FrameworkID frameworkID,
             UUID targetConfigurationId,
@@ -310,7 +308,7 @@ public class PodInfoBuilder {
 
         // Populate ContainerInfo with the appropriate information from PodSpec
         // This includes networks, rlimits, secret volumes...
-        executorInfoBuilder.setContainer(getContainerInfo(podSpec, true, false));
+        executorInfoBuilder.setContainer(getContainerInfo(podSpec, false));
 
         return executorInfoBuilder;
     }
@@ -401,7 +399,7 @@ public class PodInfoBuilder {
         return builder.build();
     }
 
-    private void setHealthCheck(
+    private static void setHealthCheck(
             Protos.TaskInfo.Builder taskInfo,
             String serviceName,
             PodInstance podInstance,
@@ -439,7 +437,7 @@ public class PodInfoBuilder {
                         schedulerConfig)));
     }
 
-    private Optional<ReadinessCheckSpec> getReadinessCheck(TaskSpec taskSpec, GoalStateOverride override) {
+    private static Optional<ReadinessCheckSpec> getReadinessCheck(TaskSpec taskSpec, GoalStateOverride override) {
         if (override.equals(GoalStateOverride.PAUSED)) {
             return Optional.of(
                     new DefaultReadinessCheckSpec(
@@ -452,7 +450,7 @@ public class PodInfoBuilder {
         return taskSpec.getReadinessCheck();
     }
 
-    private void setReadinessCheck(
+    private static void setReadinessCheck(
             Protos.TaskInfo.Builder taskInfoBuilder,
             String serviceName,
             PodInstance podInstance,
@@ -520,8 +518,7 @@ public class PodInfoBuilder {
      * @param isTaskContainer Whether this container is being attached to a TaskInfo rather than ExecutorInfo
      * @return the ContainerInfo to be attached
      */
-    private Protos.ContainerInfo getContainerInfo(
-            PodSpec podSpec, boolean addExtraParameters, boolean isTaskContainer) {
+    private static Protos.ContainerInfo getContainerInfo(PodSpec podSpec, boolean isTaskContainer) {
         Collection<Protos.Volume> secretVolumes = getExecutorInfoSecretVolumes(podSpec.getSecrets());
         Protos.ContainerInfo.Builder containerInfo = Protos.ContainerInfo.newBuilder()
                 .setType(Protos.ContainerInfo.Type.MESOS);
@@ -545,36 +542,26 @@ public class PodInfoBuilder {
             return containerInfo.build();
         }
 
-        boolean shouldAddImage =
-                podSpec.getImage().isPresent() &&
-                addExtraParameters &&
-                isTaskContainer;
-
-        if (shouldAddImage) {
+        if (podSpec.getImage().isPresent() && isTaskContainer) {
             containerInfo.getMesosBuilder().getImageBuilder()
                     .setType(Protos.Image.Type.DOCKER)
                     .getDockerBuilder().setName(podSpec.getImage().get());
         }
 
-        // With the default executor, all NetworkInfos must be defined on the executor itself rather than individual
-        // tasks. This check can be made much less ugly once the custom executor no longer need be supported.
         if (!podSpec.getNetworks().isEmpty() && !isTaskContainer) {
-            LOGGER.info("Adding NetworkInfos for networks: {}",
+            LOGGER.debug("Adding NetworkInfos for networks: {}",
                     podSpec.getNetworks().stream().map(n -> n.getName()).collect(Collectors.toList()));
             containerInfo.addAllNetworkInfos(
                     podSpec.getNetworks().stream().map(PodInfoBuilder::getNetworkInfo).collect(Collectors.toList()));
         }
 
-        if (!podSpec.getRLimits().isEmpty() && addExtraParameters) {
+        if (!podSpec.getRLimits().isEmpty()) {
             containerInfo.setRlimitInfo(getRLimitInfo(podSpec.getRLimits()));
         }
 
-        if (addExtraParameters) {
-            for (Protos.Volume secretVolume : secretVolumes) {
-                containerInfo.addVolumes(secretVolume);
-            }
+        for (Protos.Volume secretVolume : secretVolumes) {
+            containerInfo.addVolumes(secretVolume);
         }
-
 
         return containerInfo.build();
     }

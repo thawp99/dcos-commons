@@ -72,6 +72,16 @@ public class OfferEvaluator {
                 .filter(taskInfo -> taskInfo != null)
                 .collect(Collectors.toMap(Protos.TaskInfo::getName, Function.identity()));
 
+        Map<TaskSpec, GoalStateOverride> overrideMap = new HashMap<>();
+        for (TaskSpec taskSpec : podInstanceRequirement.getPodInstance().getPod().getTasks()) {
+            GoalStateOverride override =
+                    stateStore.fetchGoalOverrideStatus(
+                            TaskSpec.getInstanceName(podInstanceRequirement.getPodInstance(), taskSpec))
+                            .target;
+
+            overrideMap.put(taskSpec, override);
+        }
+
         for (int i = 0; i < offers.size(); ++i) {
             List<OfferEvaluationStage> evaluationStages =
                     getEvaluationPipeline(podInstanceRequirement, allTasks.values(), thisPodTasks);
@@ -80,16 +90,6 @@ public class OfferEvaluator {
 
             MesosResourcePool resourcePool = new MesosResourcePool(
                     offer, OfferEvaluationUtils.getRole(podInstanceRequirement.getPodInstance().getPod()));
-
-            Map<TaskSpec, GoalStateOverride> overrideMap = new HashMap<>();
-            for (TaskSpec taskSpec : podInstanceRequirement.getPodInstance().getPod().getTasks()) {
-                GoalStateOverride override =
-                        stateStore.fetchGoalOverrideStatus(
-                                TaskSpec.getInstanceName(podInstanceRequirement.getPodInstance(), taskSpec))
-                                .target;
-
-                overrideMap.put(taskSpec, override);
-            }
 
             PodInfoBuilder podInfoBuilder = new PodInfoBuilder(
                     podInstanceRequirement,

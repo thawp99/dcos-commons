@@ -53,6 +53,8 @@ public class StateStore {
 
     private static final String TASK_GOAL_OVERRIDE_PATH_NAME = "goal-state-override";
     private static final String TASK_GOAL_OVERRIDE_STATUS_PATH_NAME = "override-status";
+    private static final String TASK_FOOTPRINT_STATUS_PATH_NAME = "footprint-status";
+    private static final String TASK_FOOTPRINT_TASK_ID_PATH_NAME = "footprint-task-id";
 
     private static final String PROPERTIES_ROOT_NAME = "Properties";
     private static final String TASKS_ROOT_NAME = "Tasks";
@@ -424,6 +426,9 @@ public class StateStore {
     public void storeGoalOverrideStatus(String taskName, GoalStateOverride.Status status)
             throws StateStoreException {
         try {
+            if (GoalStateOverride.FOOTPRINT.equals(status.target)) {
+                throw new IllegalArgumentException("FOOTPRINT statuses should be passed to storeFootprintProgress()");
+            }
             if (GoalStateOverride.Status.INACTIVE.equals(status)) {
                 // Mark inactive state by clearing any override bits.
                 persister.recursiveDeleteMany(Arrays.asList(
@@ -443,6 +448,39 @@ public class StateStore {
     }
 
     /**
+     * Stores the footprint status of a particular Task. This affects the result of
+     * {@link #fetchGoalOverrideStatus(String)}, taking priority over any other configured {@link GoalStateOverride}
+     * without overwriting it.
+     */
+    public void storeFootprintProgress(String taskName, GoalStateOverride.Progress progress, Optional<String> taskId) {
+        try {
+            if (progress.equals(GoalStateOverride.Progress.COMPLETE)) {
+                // Footprint complete, clear status.
+                if (taskId.isPresent()) {
+                    throw new IllegalArgumentException(
+                            "taskId cannot be provided when progress is COMPLETE: " + taskId.get());
+                }
+                persister.recursiveDeleteMany(Arrays.asList(
+                        getFootprintStatusPath(namespace, taskName),
+                        getFootprintTaskIdPath(namespace, taskName)));
+            } else {
+                Map<String, byte[]> values = new TreeMap<>();
+                values.put(getFootprintStatusPath(namespace, taskName),
+                        progress.getSerializedName().getBytes(StandardCharsets.UTF_8));
+                if (taskId.isPresent()) {
+                    values.put(getFootprintTaskIdPath(namespace, taskName),
+                            taskId.get().getBytes(StandardCharsets.UTF_8));
+                } else {
+                    values.put(getFootprintTaskIdPath(namespace, taskName), null);
+                }
+                persister.setMany(values);
+            }
+        } catch (PersisterException e) {
+            throw new StateStoreException(e);
+        }
+    }
+
+    /**
      * Retrieves the goal state override status of a particular task. A lack of override will result in a
      * {@link GoalStateOverride.Status} with {@code override=NONE} and {@code state=NONE}.
      *
@@ -450,21 +488,36 @@ public class StateStore {
      */
     public GoalStateOverride.Status fetchGoalOverrideStatus(String taskName) throws StateStoreException {
         try {
+            String footprintStatusPath = getFootprintStatusPath(namespace, taskName);
             String goalOverridePath = getGoalOverridePath(namespace, taskName);
             String goalOverrideStatusPath = getGoalOverrideStatusPath(namespace, taskName);
-            Map<String, byte[]> values = persister.getMany(Arrays.asList(goalOverridePath, goalOverrideStatusPath));
-            byte[] nameBytes = values.get(goalOverridePath);
-            byte[] statusBytes = values.get(goalOverrideStatusPath);
-            if (nameBytes == null && statusBytes == null) {
-                // Cleared override bits => Inactive state
+            Map<String, byte[]> values = persister.getMany(
+                    Arrays.asList(footprintStatusPath, goalOverridePath, goalOverrideStatusPath));
+
+            // First check for any pending footprint operation. An incomplete footprint status takes precedent over any
+            // user-triggered overrides.
+            byte[] footprintStatusBytes = values.get(footprintStatusPath);
+            if (footprintStatusBytes != null) {
+                return GoalStateOverride.FOOTPRINT.newStatus(parseOverrideProgress(taskName, footprintStatusBytes));
+            }
+
+            // Then check for any user-triggered overrides if no footprint status is present.
+            byte[] overrideNameBytes = values.get(goalOverridePath);
+            byte[] overrideStatusBytes = values.get(goalOverrideStatusPath);
+            if (overrideNameBytes == null && overrideStatusBytes == null) {
+                // Nothing set => No override
                 return GoalStateOverride.Status.INACTIVE;
-            } else if (nameBytes == null || statusBytes == null) {
-                // This shouldn't happen, but let's just play it safe and assume that the override shouldn't be set.
+            } else if (overrideNameBytes != null && overrideStatusBytes != null) {
+                // Return user-defined override.
+                return parseOverrideName(taskName, overrideNameBytes)
+                        .newStatus(parseOverrideProgress(taskName, overrideStatusBytes));
+            } else {
+                // One field is set but not both. This shouldn't happen, but let's just play it safe and assume that the
+                // override shouldn't be set.
                 logger.error("Task is missing override name or override status. Expected either both or neither: {}",
                         values);
                 return GoalStateOverride.Status.INACTIVE;
             }
-            return parseOverrideName(taskName, nameBytes).newStatus(parseOverrideProgress(taskName, statusBytes));
         } catch (PersisterException e) {
             throw new StateStoreException(e);
         }
@@ -555,6 +608,26 @@ public class StateStore {
         return PersisterUtils.join(
                 PersisterUtils.join(getTaskPath(namespace, taskName), TASK_METADATA_PATH_NAME),
                 TASK_GOAL_OVERRIDE_STATUS_PATH_NAME);
+    }
+
+    /**
+     * @return Services/[namespace]/Tasks/[taskName]/Metadata/footprint-status, or
+     *         Tasks/[taskName]/Metadata/footprint-status
+     */
+    protected static String getFootprintStatusPath(String namespace, String taskName) {
+        return PersisterUtils.join(
+                PersisterUtils.join(getTaskPath(namespace, taskName), TASK_METADATA_PATH_NAME),
+                TASK_FOOTPRINT_STATUS_PATH_NAME);
+    }
+
+    /**
+     * @return Services/[namespace]/Tasks/[taskName]/Metadata/footprint-status, or
+     *         Tasks/[taskName]/Metadata/footprint-status
+     */
+    protected static String getFootprintTaskIdPath(String namespace, String taskName) {
+        return PersisterUtils.join(
+                PersisterUtils.join(getTaskPath(namespace, taskName), TASK_METADATA_PATH_NAME),
+                TASK_FOOTPRINT_TASK_ID_PATH_NAME);
     }
 
     /**
