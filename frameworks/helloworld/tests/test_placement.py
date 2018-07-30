@@ -284,8 +284,10 @@ def test_rr_by_hostname():
         }
     })
 
-    sdk_install.install(config.PACKAGE_NAME, config.SERVICE_NAME,
-        config.get_num_private_agents() * 4, additional_options=options)
+    sdk_install.install(config.PACKAGE_NAME,
+                        config.SERVICE_NAME,
+                        config.get_num_private_agents() * 4,
+                        additional_options=options)
     ensure_max_count_per_agent(hello_count=2, world_count=2)
 
 
@@ -306,8 +308,10 @@ def test_cluster():
         }
     })
 
-    sdk_install.install(config.PACKAGE_NAME, config.SERVICE_NAME,
-        config.get_num_private_agents(), additional_options=options)
+    sdk_install.install(config.PACKAGE_NAME,
+                        config.SERVICE_NAME,
+                        config.get_num_private_agents(),
+                        additional_options=options)
     ensure_count_per_agent(hello_count=config.get_num_private_agents(), world_count=0)
 
 
