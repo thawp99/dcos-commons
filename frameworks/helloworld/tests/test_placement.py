@@ -369,6 +369,7 @@ def test_updated_placement_constraints_replaced_tasks_do_move():
 @pytest.mark.dcos_min_version('1.12')
 @pytest.mark.sanity
 def test_scheduler_task_placement_by_marathon():
+    sdk_install.uninstall(config.PACKAGE_NAME, config.SERVICE_NAME)
     # This test ensures that the placement of the scheduler task itself works as expected.
     some_private_agent = shakedown.get_private_agents().pop()
     sdk_install.install(
