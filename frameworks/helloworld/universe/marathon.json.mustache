@@ -89,7 +89,16 @@
     "NGINX_CONTAINER_VERSION": "{{tls.nginx_container_version}}",
     "TEST_BOOLEAN": "{{service.test_boolean}}",
     "SCENARIOS": "{{service.scenario}}",
-    "ALLOW_REGION_AWARENESS": "{{service.allow_region_awareness}}"
+    "ALLOW_REGION_AWARENESS": "{{service.allow_region_awareness}}",
+    {{#testbed.disable_suppress}}
+    "DISABLE_SUPPRESS": "value-does-not-matter",
+    {{/testbed.disable_suppress}}
+    "COUNT": "{{testbed.count}}",
+    "CPUS": "{{testbed.cpus}}",
+    "MEM": "{{testbed.mem}}",
+    "DEFAULT_EXECUTOR_CPUS": "{{testbed.default_executor_cpus}}",
+    "STRATEGY": "{{testbed.strategy}}",
+    "SLEEP": "{{testbed.sleep}}"
   },
   "fetch": [
     { "uri": "{{resource.assets.uris.bootstrap-zip}}", "cache": true },
