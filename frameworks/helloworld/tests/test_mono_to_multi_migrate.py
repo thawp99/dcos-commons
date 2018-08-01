@@ -32,6 +32,7 @@ def test_old_tasks_not_relaunched():
     # Start update plan with options that have list of yaml files to make it launch in multi service mode
     sdk_upgrade.update_service(config.PACKAGE_NAME,
                                config.SERVICE_NAME,
+                               4,
                                additional_options={
                                    "service": {
                                        "yaml": "",
@@ -55,6 +56,7 @@ def test_old_tasks_get_relaunched_with_new_config():
     # launch in multi service mode with updated config
     sdk_upgrade.update_service(config.PACKAGE_NAME,
                                config.SERVICE_NAME,
+                               4,
                                additional_options={
                                    "service": {
                                        "yaml": "",

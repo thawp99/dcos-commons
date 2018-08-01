@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 def test_upgrade(
         package_name,
         service_name,
-        running_task_count,
+        expected_running_tasks,
         additional_options={},
         test_version_additional_options=None,
         timeout_seconds=25 * 60,
@@ -58,7 +58,7 @@ def test_upgrade(
         sdk_install.install(
             package_name,
             service_name,
-            running_task_count,
+            expected_running_tasks,
             additional_options=additional_options,
             timeout_seconds=timeout_seconds,
             wait_for_deployment=wait_for_deployment)
@@ -76,7 +76,7 @@ def test_upgrade(
         package_name,
         test_version,
         service_name,
-        running_task_count,
+        expected_running_tasks,
         test_version_additional_options,
         timeout_seconds,
         wait_for_deployment)
@@ -91,7 +91,7 @@ def test_upgrade(
 def soak_upgrade_downgrade(
         package_name,
         service_name,
-        running_task_count,
+        expected_running_tasks,
         additional_options={},
         timeout_seconds=25 * 60,
         wait_for_deployment=True):
@@ -102,7 +102,7 @@ def soak_upgrade_downgrade(
         package_name,
         version,
         service_name,
-        running_task_count,
+        expected_running_tasks,
         additional_options,
         timeout_seconds,
         wait_for_deployment)
@@ -114,7 +114,7 @@ def soak_upgrade_downgrade(
         package_name,
         version,
         service_name,
-        running_task_count,
+        expected_running_tasks,
         additional_options,
         timeout_seconds,
         wait_for_deployment)
@@ -147,23 +147,46 @@ def get_config(package_name, service_name):
     return target_config
 
 
-def update_service(package_name, service_name, additional_options=None, to_package_version=None):
-    update_cmd = ['update', 'start']
-    if to_package_version:
-        update_cmd.append('--package-version={}'.format(to_package_version))
-    if additional_options:
-        options_file = tempfile.NamedTemporaryFile("w")
-        json.dump(additional_options, options_file)
-        options_file.flush()  # ensure json content is available for the CLI to read below
-        update_cmd.append("--options={}".format(options_file.name))
-    sdk_cmd.svc_cli(package_name, service_name, ' '.join(update_cmd), check=True)
+def update_service(package_name,
+                   service_name,
+                   expected_running_tasks,
+                   to_package_version=None,
+                   additional_options=None,
+                   timeout_seconds=None,
+                   wait_for_deployment=None):
+    if sdk_utils.dcos_version_less_than("1.10") or shakedown.ee_version() is None:
+        log.info('Using marathon upgrade flow to upgrade {} {}'.format(package_name, to_package_version))
+        sdk_marathon.destroy_app(service_name)
+        sdk_install.install(
+            package_name,
+            service_name,
+            expected_running_tasks,
+            additional_options=additional_options,
+            package_version=to_package_version,
+            timeout_seconds=timeout_seconds,
+            wait_for_deployment=wait_for_deployment)
+    else:
+        log.info('Using CLI upgrade flow to upgrade {} {}'.format(package_name, to_package_version))
+        update_cmd = ['update', 'start']
+        if to_package_version:
+            update_cmd.append('--package-version={}'.format(to_package_version))
+        if additional_options:
+            options_file = tempfile.NamedTemporaryFile("w")
+            json.dump(additional_options, options_file)
+            options_file.flush()  # ensure json content is available for the CLI to read below
+            update_cmd.append("--options={}".format(options_file.name))
+        sdk_cmd.svc_cli(package_name, service_name, ' '.join(update_cmd), check=True)
+        # we must manually upgrade the package CLI because it's not done automatically in this flow
+        # (and why should it? that'd imply the package CLI replacing itself via a call to the main CLI...)
+        sdk_cmd.run_cli(
+            'package install --yes --cli --package-version={} {}'.format(to_package_version, package_name))
 
 
 def _upgrade_or_downgrade(
         package_name,
         to_package_version,
         service_name,
-        running_task_count,
+        expected_running_tasks,
         additional_options,
         timeout_seconds,
         wait_for_deployment):
@@ -171,24 +194,13 @@ def _upgrade_or_downgrade(
     initial_config = get_config(package_name, service_name)
     task_ids = sdk_tasks.get_task_ids(service_name, '')
 
-    if sdk_utils.dcos_version_less_than("1.10") or shakedown.ee_version() is None:
-        log.info('Using marathon upgrade flow to upgrade {} {}'.format(package_name, to_package_version))
-        sdk_marathon.destroy_app(service_name)
-        sdk_install.install(
-            package_name,
-            service_name,
-            running_task_count,
-            additional_options=additional_options,
-            package_version=to_package_version,
-            timeout_seconds=timeout_seconds,
-            wait_for_deployment=wait_for_deployment)
-    else:
-        log.info('Using CLI upgrade flow to upgrade {} {}'.format(package_name, to_package_version))
-        update_service(package_name, service_name, additional_options, to_package_version)
-        # we must manually upgrade the package CLI because it's not done automatically in this flow
-        # (and why should it? that'd imply the package CLI replacing itself via a call to the main CLI...)
-        sdk_cmd.run_cli(
-            'package install --yes --cli --package-version={} {}'.format(to_package_version, package_name))
+    update_service(package_name,
+                   service_name,
+                   expected_running_tasks,
+                   to_package_version=to_package_version,
+                   additional_options=additional_options,
+                   timeout_seconds=timeout_seconds,
+                   wait_for_deployment=wait_for_deployment)
 
     if wait_for_deployment:
 
